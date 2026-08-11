@@ -63,6 +63,24 @@ Stage 8 remains the baseline runnable release slice, and the current LLM dual-en
 - Analysis can use `MOCK_RULE_ENGINE` or `OPENAI_COMPATIBLE`; omitted `engineMode` still defaults to `MOCK_RULE_ENGINE`.
 - Review can use `RULE_REVIEW_ONLY` or `RULE_REVIEW_WITH_LLM_INSIGHT`; settlement status is always produced by the rule engine.
 
+## Open-Source Maintenance
+
+The repository is maintained through small, independently verifiable changes.
+Releases are published for meaningful fixes or capabilities rather than to create
+artificial activity. Codex may assist with implementation, tests, documentation,
+Issue/PR review, and release preparation, while a human maintainer remains
+responsible for every commit, merge, tag, release, and public claim.
+
+- [Maintenance, release, Codex, and adoption-evidence policy](docs/oss-maintenance.md)
+- [Contribution guide](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
+- [Release history](https://github.com/TomLeo-ai/football-lottery-analysis-lab/releases)
+- [Issues and user feedback](https://github.com/TomLeo-ai/football-lottery-analysis-lab/issues)
+
+The project records only publicly verifiable, consented adoption evidence and
+does not manufacture Stars, Forks, Issues, Pull Requests, contributors, or usage
+claims.
+
 ## LLM Dual Engine
 
 The optional LLM layer uses OpenAI-compatible Chat Completions over the backend HTTP client. It does not require a heavyweight model SDK and is disabled unless the selected provider has a backend environment variable configured.
