@@ -1,0 +1,38 @@
+{
+  "name": "football-lottery-analysis-lab",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Open-source football analysis and simulation review lab with strict compliance boundaries.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "build:web": "npm run build -w apps/web",
+    "compliance:scan": "node scripts/compliance-scan.js",
+    "dev:web": "npm run dev -w apps/web",
+    "lint:web": "npm run lint -w apps/web",
+    "smoke:deepseek": "node scripts/deepseek-integration-smoke.mjs",
+    "smoke:stage8": "node scripts/stage8-smoke.mjs",
+    "test:deepseek-smoke": "node scripts/deepseek-integration-smoke.spec.mjs",
+    "test:stage8-config": "node scripts/stage8-config.spec.mjs",
+    "test:server": "mvn -f apps/server/pom.xml test",
+    "test:web": "npm run test -w apps/web",
+    "verify:server": "mvn -f apps/server/pom.xml verify",
+    "verify:stage2": "npm run compliance:scan && npm run lint:web && npm run test:web && npm run build:web && npm run test:server",
+    "verify:stage3": "npm run compliance:scan && npm run lint:web && npm run test:web && npm run build:web && npm run test:server",
+    "verify:stage4": "npm run compliance:scan && npm run lint:web && npm run test:web && npm run build:web && npm run test:server",
+    "verify:stage5": "npm run compliance:scan && npm run lint:web && npm run test:web && npm run build:web && npm run test:server",
+    "verify:stage6": "npm run compliance:scan && npm run lint:web && npm run test:web && npm run build:web && npm run test:server",
+    "verify:stage7": "npm run compliance:scan && npm run lint:web && npm run test:web && npm run build:web && npm run test:server",
+    "verify:stage8": "npm run compliance:scan && npm run lint:web && npm run test:web && npm run build:web && npm run verify:server && npm run test:stage8-config && npm run smoke:stage8"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1"
+  }
+}

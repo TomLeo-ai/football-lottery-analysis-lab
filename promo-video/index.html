@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=1920, height=1080">
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      html,
+      body {
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #07191b;
+      }
+
+      body {
+        color: #f4fbfa;
+        font-family: "Noto Sans JP", sans-serif;
+        text-rendering: geometricPrecision;
+      }
+
+      #root {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #07191b;
+      }
+
+      .scene {
+        position: absolute;
+        inset: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #07191b;
+      }
+
+      #scene-upload,
+      #scene-confirm,
+      #scene-analysis,
+      #scene-review,
+      #scene-settings,
+      #scene-close {
+        opacity: 0;
+      }
+
+      .screen-bg {
+        position: absolute;
+        inset: -80px;
+        width: 2080px;
+        height: 1240px;
+        object-fit: cover;
+        filter: blur(20px) brightness(0.38) saturate(1.08);
+      }
+
+      .screen-main {
+        position: absolute;
+        width: 1500px;
+        height: auto;
+        box-shadow: 0 48px 150px rgba(0, 0, 0, 0.42);
+      }
+
+      .screen-main--wide {
+        width: 1640px;
+      }
+
+      .screen-main--left {
+        left: 76px;
+        top: 100px;
+      }
+
+      .screen-main--right {
+        right: 76px;
+        top: 96px;
+      }
+
+      .screen-main--center {
+        left: 210px;
+        top: 92px;
+      }
+
+      .scrim {
+        position: absolute;
+        inset: 0;
+        background:
+          linear-gradient(90deg, rgba(7, 25, 27, 0.96) 0%, rgba(7, 25, 27, 0.82) 30%, rgba(7, 25, 27, 0.1) 76%),
+          linear-gradient(0deg, rgba(7, 25, 27, 0.78) 0%, rgba(7, 25, 27, 0) 46%);
+      }
+
+      .scrim--right {
+        background:
+          linear-gradient(270deg, rgba(7, 25, 27, 0.96) 0%, rgba(7, 25, 27, 0.82) 31%, rgba(7, 25, 27, 0.12) 78%),
+          linear-gradient(0deg, rgba(7, 25, 27, 0.72) 0%, rgba(7, 25, 27, 0) 48%);
+      }
+
+      .copy {
+        position: absolute;
+        z-index: 8;
+        width: 720px;
+        text-shadow: 0 4px 22px rgba(0, 0, 0, 0.44);
+      }
+
+      .copy--left {
+        left: 86px;
+        top: 148px;
+      }
+
+      .copy--right {
+        right: 92px;
+        top: 150px;
+      }
+
+      .copy--bottom {
+        left: 88px;
+        bottom: 82px;
+        width: 1120px;
+      }
+
+      .kicker {
+        color: #9bd8d1;
+        font-size: 25px;
+        font-weight: 800;
+        line-height: 1.2;
+      }
+
+      .title {
+        margin-top: 22px;
+        color: #ffffff;
+        font-size: 94px;
+        font-weight: 950;
+        line-height: 1.04;
+        letter-spacing: 0;
+      }
+
+      .title--large {
+        font-size: 112px;
+      }
+
+      .title em {
+        color: #f7c948;
+        font-style: normal;
+      }
+
+      .subtitle {
+        margin-top: 26px;
+        color: #d9eeee;
+        font-size: 35px;
+        font-weight: 700;
+        line-height: 1.44;
+      }
+
+      .meta {
+        position: absolute;
+        left: 86px;
+        bottom: 48px;
+        z-index: 10;
+        color: rgba(244, 251, 250, 0.78);
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: 0;
+      }
+
+      .caption {
+        position: absolute;
+        left: 88px;
+        right: 88px;
+        bottom: 52px;
+        z-index: 12;
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 60px;
+        color: #ffffff;
+      }
+
+      .caption strong {
+        display: block;
+        max-width: 1040px;
+        font-size: 44px;
+        line-height: 1.25;
+      }
+
+      .caption span {
+        flex: none;
+        color: #9bd8d1;
+        font-size: 23px;
+        font-weight: 800;
+      }
+
+      .spotlight {
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(110deg, rgba(247, 201, 72, 0.16), transparent 34%, rgba(47, 143, 138, 0.18));
+        opacity: 0.62;
+      }
+
+      .montage {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+      }
+
+      .montage img {
+        position: absolute;
+        width: 980px;
+        box-shadow: 0 38px 120px rgba(0, 0, 0, 0.32);
+      }
+
+      .montage img:nth-child(1) {
+        left: -80px;
+        top: 110px;
+      }
+
+      .montage img:nth-child(2) {
+        right: -70px;
+        top: 72px;
+      }
+
+      .montage img:nth-child(3) {
+        left: 420px;
+        bottom: -120px;
+      }
+
+      .close-scrim {
+        position: absolute;
+        inset: 0;
+        background: rgba(7, 25, 27, 0.78);
+      }
+
+      .close-copy {
+        position: absolute;
+        left: 110px;
+        top: 210px;
+        z-index: 16;
+        width: 1220px;
+      }
+
+      .close-copy h2 {
+        color: #ffffff;
+        font-size: 132px;
+        font-weight: 950;
+        line-height: 1.02;
+        letter-spacing: 0;
+      }
+
+      .close-copy p {
+        margin-top: 36px;
+        color: #f7c948;
+        font-size: 58px;
+        font-weight: 900;
+        line-height: 1.22;
+      }
+
+      .close-copy small {
+        display: block;
+        margin-top: 34px;
+        color: #c7ddda;
+        font-size: 29px;
+        font-weight: 700;
+        line-height: 1.45;
+      }
+
+      .end-fade {
+        position: absolute;
+        inset: 0;
+        z-index: 90;
+        background: #07191b;
+        opacity: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div data-hf-id="hf-38rt" id="root" data-composition-id="main" data-start="0" data-duration="58" data-width="1920" data-height="1080">
+      <section data-hf-id="hf-rycl" id="scene-dashboard" class="scene">
+        <img data-hf-id="hf-q1eo" class="screen-bg" src="assets/screens/dashboard.png" alt="">
+        <img data-hf-id="hf-klg9" class="screen-main screen-main--right screen-main--wide" src="assets/screens/dashboard.png" alt="足彩分析实验室仪表盘">
+        <div data-hf-id="hf-261e" class="scrim"></div>
+        <div data-hf-id="hf-pjjj" class="copy copy--left">
+          <div data-hf-id="hf-3koe" class="kicker">开源足球分析复盘工具</div>
+          <h1 data-hf-id="hf-usog" class="title title--large">把零散判断，放进<em data-hf-id="hf-l6fy">闭环工作台</em></h1>
+          <p data-hf-id="hf-hsub" class="subtitle">从截图、确认、模拟到复盘，每一步都留在同一套产品流程里。</p>
+        </div>
+        <div data-hf-id="hf-euml" class="meta">非官方 · 仅模拟分析/复盘 · 开源研究工具</div>
+      </section>
+
+      <section data-hf-id="hf-2nmo" id="scene-upload" class="scene">
+        <img data-hf-id="hf-xu97" class="screen-bg" src="assets/screens/screenshot-upload-active.png" alt="">
+        <img data-hf-id="hf-o77h" class="screen-main screen-main--left" src="assets/screens/screenshot-upload-active.png" alt="截图 OCR 页面">
+        <div data-hf-id="hf-fb8c" class="scrim scrim--right"></div>
+        <div data-hf-id="hf-xxpe" class="copy copy--right">
+          <div data-hf-id="hf-jeie" class="kicker">第一步</div>
+          <h2 data-hf-id="hf-dbi3" class="title">从截图开始，先<em data-hf-id="hf-netp">确认</em>，再分析</h2>
+          <p data-hf-id="hf-el2m" class="subtitle">页面进入的是虚构样例和用户自有截图流程，未经确认的数据不会向后传递。</p>
+        </div>
+      </section>
+
+      <section data-hf-id="hf-phqh" id="scene-confirm" class="scene">
+        <img data-hf-id="hf-28s3" class="screen-bg" src="assets/screens/ocr-review.png" alt="">
+        <img data-hf-id="hf-1jxz" class="screen-main screen-main--center screen-main--wide" src="assets/screens/ocr-review.png" alt="人工确认页面">
+        <div data-hf-id="hf-9weu" class="scrim"></div>
+        <div data-hf-id="hf-gsc6" class="caption">
+          <strong data-hf-id="hf-1yk1">确认后的快照，才是后续模拟分析的起点。</strong>
+          <span data-hf-id="hf-vi8p">人工确认 · 字段复核 · 边界清楚</span>
+        </div>
+      </section>
+
+      <section data-hf-id="hf-dc99" id="scene-analysis" class="scene">
+        <img data-hf-id="hf-r8mc" class="screen-bg" src="assets/screens/strategy-simulator.png" alt="">
+        <img data-hf-id="hf-94ox" class="screen-main screen-main--right screen-main--wide" src="assets/screens/strategy-simulator.png" alt="策略分析页面">
+        <div data-hf-id="hf-aapv" class="scrim"></div>
+        <div data-hf-id="hf-f4gf" class="copy copy--left">
+          <div data-hf-id="hf-16wo" class="kicker">规则先行</div>
+          <h2 data-hf-id="hf-eqg4" class="title">规则引擎先跑起来，模型只做<em data-hf-id="hf-6axk">可审计辅助</em></h2>
+          <p data-hf-id="hf-uo1v" class="subtitle">参数、来源、引擎选择和分析结果都在产品界面里可见。</p>
+        </div>
+      </section>
+
+      <section data-hf-id="hf-ib53" id="scene-review" class="scene">
+        <img data-hf-id="hf-wfka" class="screen-bg" src="assets/screens/review-center.png" alt="">
+        <img data-hf-id="hf-uqng" class="screen-main screen-main--left screen-main--wide" src="assets/screens/review-center.png" alt="复盘中心页面">
+        <div data-hf-id="hf-4txw" class="scrim scrim--right"></div>
+        <div data-hf-id="hf-d612" class="copy copy--right">
+          <div data-hf-id="hf-9kz1" class="kicker">赛后回看</div>
+          <h2 data-hf-id="hf-4w5p" class="title">赛果回来后，复盘当时的<em data-hf-id="hf-yemi">假设</em></h2>
+          <p data-hf-id="hf-30mr" class="subtitle">把模拟方案、匹配结果和策略修正规则放在同一条证据链里。</p>
+        </div>
+      </section>
+
+      <section data-hf-id="hf-hk64" id="scene-settings" class="scene">
+        <img data-hf-id="hf-is69" class="screen-bg" src="assets/screens/model-settings.png" alt="">
+        <img data-hf-id="hf-0ne0" class="screen-main screen-main--center screen-main--wide" src="assets/screens/model-settings.png" alt="模型设置页面">
+        <div data-hf-id="hf-ap0w" class="scrim"></div>
+        <div data-hf-id="hf-0o2i" class="caption">
+          <strong data-hf-id="hf-rg4o">能力可以配置，合规边界始终清楚。</strong>
+          <span data-hf-id="hf-0un9">本地模拟 · 后端密钥 · 审计留痕</span>
+        </div>
+      </section>
+
+      <section data-hf-id="hf-rej1" id="scene-close" class="scene">
+        <div data-hf-id="hf-v5w7" class="montage">
+          <img data-hf-id="hf-3srt" src="assets/screens/dashboard.png" alt="">
+          <img data-hf-id="hf-y8t7" src="assets/screens/strategy-simulator.png" alt="">
+          <img data-hf-id="hf-3u1f" src="assets/screens/review-center.png" alt="">
+        </div>
+        <div data-hf-id="hf-8k70" class="spotlight"></div>
+        <div data-hf-id="hf-3c1p" class="close-scrim"></div>
+        <div data-hf-id="hf-x4gu" class="close-copy">
+          <h2 data-hf-id="hf-a2lp">足彩分析实验室</h2>
+          <p data-hf-id="hf-93ie">构建。模拟。复盘。</p>
+          <small data-hf-id="hf-oipl">一个面向足球分析研究的开源产品工作台。非官方，仅用于模拟分析与复盘。</small>
+        </div>
+      </section>
+
+      <div data-hf-id="hf-wtav" class="end-fade" data-layout-ignore=""></div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+
+      var tl = gsap.timeline({ paused: true });
+      var hiddenScenes = "#scene-upload,#scene-confirm,#scene-analysis,#scene-review,#scene-settings,#scene-close";
+
+      gsap.set(hiddenScenes, { opacity: 0 });
+
+      function showScene(nextScene, previousScene, at) {
+        tl.set(nextScene, { opacity: 1 }, at);
+        tl.to(previousScene, { opacity: 0, duration: 0.34, ease: "sine.inOut" }, at);
+      }
+
+      function enterCopy(selector, at) {
+        tl.fromTo(selector + " .kicker", { y: 26, opacity: 0 }, { y: 0, opacity: 1, duration: 0.44, ease: "power3.out" }, at);
+        tl.fromTo(selector + " .title", { y: 52, opacity: 0 }, { y: 0, opacity: 1, duration: 0.66, ease: "expo.out" }, at + 0.12);
+        tl.fromTo(selector + " .subtitle", { y: 34, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5, ease: "circ.out" }, at + 0.36);
+      }
+
+      function enterCaption(selector, at) {
+        tl.fromTo(selector + " .caption strong", { y: 42, opacity: 0 }, { y: 0, opacity: 1, duration: 0.56, ease: "power3.out" }, at);
+        tl.fromTo(selector + " .caption span", { y: 30, opacity: 0 }, { y: 0, opacity: 1, duration: 0.48, ease: "power3.out" }, at + 0.18);
+      }
+
+      tl.fromTo("#scene-dashboard .screen-bg", { scale: 1.06 }, { scale: 1.14, duration: 7, ease: "sine.inOut" }, 0);
+      tl.fromTo("#scene-dashboard .screen-main", { x: 140, scale: 0.9, opacity: 0 }, { x: 0, scale: 1, opacity: 1, duration: 0.92, ease: "power4.out" }, 0.28);
+      enterCopy("#scene-dashboard", 0.52);
+      tl.fromTo("#scene-dashboard .meta", { y: 22, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5, ease: "power2.out" }, 2.0);
+      tl.to("#scene-dashboard .screen-main", { x: -46, y: 8, scale: 1.04, duration: 6.1, ease: "sine.inOut" }, 0.9);
+
+      showScene("#scene-upload", "#scene-dashboard", 7.0);
+      tl.fromTo("#scene-upload .screen-bg", { scale: 1.04 }, { scale: 1.12, duration: 8, ease: "sine.inOut" }, 7.0);
+      tl.fromTo("#scene-upload .screen-main", { x: -120, opacity: 0, scale: 0.96 }, { x: 0, opacity: 1, scale: 1, duration: 0.78, ease: "power4.out" }, 7.18);
+      enterCopy("#scene-upload", 7.7);
+      tl.to("#scene-upload .screen-main", { x: 48, scale: 1.035, duration: 7.2, ease: "sine.inOut" }, 7.7);
+
+      showScene("#scene-confirm", "#scene-upload", 15.0);
+      tl.fromTo("#scene-confirm .screen-bg", { scale: 1.08 }, { scale: 1.16, duration: 8, ease: "sine.inOut" }, 15.0);
+      tl.fromTo("#scene-confirm .screen-main", { y: 86, opacity: 0, scale: 0.94 }, { y: 0, opacity: 1, scale: 1, duration: 0.72, ease: "expo.out" }, 15.22);
+      enterCaption("#scene-confirm", 16.0);
+      tl.to("#scene-confirm .screen-main", { y: -44, scale: 1.045, duration: 7.5, ease: "sine.inOut" }, 15.8);
+
+      showScene("#scene-analysis", "#scene-confirm", 23.0);
+      tl.fromTo("#scene-analysis .screen-bg", { scale: 1.06 }, { scale: 1.14, duration: 11, ease: "sine.inOut" }, 23.0);
+      tl.fromTo("#scene-analysis .screen-main", { x: 130, opacity: 0, scale: 0.94 }, { x: 0, opacity: 1, scale: 1, duration: 0.8, ease: "power4.out" }, 23.22);
+      enterCopy("#scene-analysis", 23.84);
+      tl.to("#scene-analysis .screen-main", { x: -64, y: -16, scale: 1.055, duration: 10.2, ease: "sine.inOut" }, 24.0);
+
+      showScene("#scene-review", "#scene-analysis", 34.0);
+      tl.fromTo("#scene-review .screen-bg", { scale: 1.05 }, { scale: 1.13, duration: 11, ease: "sine.inOut" }, 34.0);
+      tl.fromTo("#scene-review .screen-main", { x: -128, opacity: 0, scale: 0.94 }, { x: 0, opacity: 1, scale: 1, duration: 0.8, ease: "expo.out" }, 34.2);
+      enterCopy("#scene-review", 34.86);
+      tl.to("#scene-review .screen-main", { x: 58, y: -20, scale: 1.055, duration: 10.2, ease: "sine.inOut" }, 35.0);
+
+      showScene("#scene-settings", "#scene-review", 45.0);
+      tl.fromTo("#scene-settings .screen-bg", { scale: 1.08 }, { scale: 1.16, duration: 8, ease: "sine.inOut" }, 45.0);
+      tl.fromTo("#scene-settings .screen-main", { y: 92, opacity: 0, scale: 0.94 }, { y: 0, opacity: 1, scale: 1, duration: 0.72, ease: "power4.out" }, 45.18);
+      enterCaption("#scene-settings", 46.0);
+      tl.to("#scene-settings .screen-main", { y: -54, scale: 1.045, duration: 7.4, ease: "sine.inOut" }, 45.8);
+
+      showScene("#scene-close", "#scene-settings", 53.0);
+      tl.fromTo("#scene-close .montage img", { y: 90, opacity: 0, scale: 0.94 }, { y: 0, opacity: 1, scale: 1, duration: 0.58, ease: "power4.out", stagger: 0.12 }, 53.2);
+      tl.fromTo("#scene-close .close-copy h2", { y: 54, opacity: 0 }, { y: 0, opacity: 1, duration: 0.58, ease: "expo.out" }, 53.72);
+      tl.fromTo("#scene-close .close-copy p", { y: 38, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5, ease: "power3.out" }, 54.08);
+      tl.fromTo("#scene-close .close-copy small", { y: 30, opacity: 0 }, { y: 0, opacity: 1, duration: 0.48, ease: "power3.out" }, 54.38);
+      tl.to("#scene-close .montage img", { y: -26, scale: 1.025, duration: 4.6, ease: "sine.inOut", stagger: 0.04 }, 53.6);
+      tl.to(".end-fade", { opacity: 1, duration: 0.48, ease: "sine.inOut" }, 57.48);
+
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

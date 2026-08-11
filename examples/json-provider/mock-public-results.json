@@ -1,0 +1,24 @@
+{
+  "label": "DEMO DATA / FICTIONAL SAMPLE",
+  "sourceName": "Mock Public Result Provider",
+  "sourceUrl": "https://example.com/mock-public-results",
+  "sourceLicense": "Fictional sample for local tests only",
+  "fetchedAt": "2026-07-01T22:15:00+08:00",
+  "confidence": 0.98,
+  "results": [
+    {
+      "matchId": "demo-match-001",
+      "matchDate": "2026-07-01",
+      "league": "Fictional Coastal League",
+      "homeTeam": "Northport United",
+      "awayTeam": "Lakeside City",
+      "kickoffTime": "2026-07-01T19:30:00+08:00",
+      "fullTimeScore": {
+        "home": 2,
+        "away": 1
+      },
+      "status": "FINISHED"
+    }
+  ]
+}
+

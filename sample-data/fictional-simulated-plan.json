@@ -1,0 +1,43 @@
+{
+  "sampleType": "DEMO DATA / FICTIONAL SAMPLE",
+  "planId": "sim-plan-000001",
+  "planType": "SIMULATED_ONLY",
+  "planStatus": "PENDING_RESULT",
+  "reportId": "analysis-demo-001",
+  "snapshotId": "snapshot-demo-001",
+  "currency": "CNY",
+  "budgetAmount": 20,
+  "statusFlow": ["GENERATED", "SAVED", "PENDING_RESULT"],
+  "items": [
+    {
+      "planItemId": "sim-item-000001",
+      "matchId": "demo-match-001",
+      "matchDate": "2026-07-01",
+      "league": "Fictional Coastal League",
+      "homeTeam": "Northport United",
+      "awayTeam": "Lakeside City",
+      "kickoffTime": "2026-07-01T19:30:00+08:00",
+      "playType": "WIN_DRAW_LOSS",
+      "selection": "AWAY_WIN",
+      "odds": 2.05,
+      "stakeAmount": 10,
+      "itemStatus": "PENDING_RESULT",
+      "note": "DEMO DATA only. Simulated selection for lifecycle testing."
+    }
+  ],
+  "snapshot": {
+    "planSnapshotId": "sim-snapshot-000001",
+    "snapshotId": "snapshot-demo-001",
+    "reportId": "analysis-demo-001",
+    "inputSourceType": "USER_SCREENSHOT_CONFIRMED",
+    "engineType": "MOCK_RULE_ENGINE",
+    "sourceReportStatus": "GENERATED",
+    "selectionCount": 1,
+    "snapshotStatus": "PENDING_RESULT",
+    "capturedAt": "2026-06-25T18:06:00+08:00"
+  },
+  "complianceNotice": "Non-official simulation sample for technical research and review workflow validation.",
+  "operatorNote": "DEMO DATA only. Waiting for Mock public result review.",
+  "createdAt": "2026-06-25T18:05:00+08:00",
+  "updatedAt": "2026-06-25T18:06:00+08:00"
+}

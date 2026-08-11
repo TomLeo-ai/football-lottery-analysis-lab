@@ -1,0 +1,29 @@
+{
+  "label": "DEMO DATA / FICTIONAL SAMPLE",
+  "screenshotTaskStatus": "WAITING_LOCAL_OCR",
+  "ocrTaskStatus": "WAITING_USER_CONFIRMATION",
+  "analysisAllowed": false,
+  "ocrProvider": "BROWSER_LOCAL_MOCK",
+  "rawText": "DEMO DATA / FICTIONAL SAMPLE\nFictional Coastal League\nNorthport United vs Lakeside City",
+  "fields": [
+    {
+      "fieldName": "league",
+      "fieldValue": "Fictional Coastal League",
+      "confidence": 0.96,
+      "sourceRegion": "x=12,y=20,w=180,h=32"
+    },
+    {
+      "fieldName": "homeTeam",
+      "fieldValue": "Northport United",
+      "confidence": 0.94,
+      "sourceRegion": "x=12,y=64,w=180,h=32"
+    },
+    {
+      "fieldName": "awayTeam",
+      "fieldValue": "Lakeside City",
+      "confidence": 0.93,
+      "sourceRegion": "x=220,y=64,w=160,h=32"
+    }
+  ]
+}
+

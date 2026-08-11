@@ -1,0 +1,13 @@
+{
+  "name": "football-lottery-analysis-lab-promo-video",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npx --yes hyperframes@0.7.20 preview --port 3017",
+    "check": "npx --yes hyperframes@0.7.20 lint && npx --yes hyperframes@0.7.20 validate && npx --yes hyperframes@0.7.20 inspect --samples 15",
+    "lint": "npx --yes hyperframes@0.7.20 lint",
+    "validate": "npx --yes hyperframes@0.7.20 validate",
+    "inspect": "npx --yes hyperframes@0.7.20 inspect --samples 15",
+    "render": "npx --yes hyperframes@0.7.20 render --output renders/football-lottery-analysis-lab-promo.mp4 --quality standard"
+  }
+}

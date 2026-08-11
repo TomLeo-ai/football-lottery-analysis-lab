@@ -1,0 +1,40 @@
+{
+  "label": "DEMO DATA / FICTIONAL SAMPLE",
+  "sourceType": "USER_SCREENSHOT_CONFIRMED",
+  "confirmedAt": "2026-06-25T10:00:00+08:00",
+  "riskPreference": "BALANCED",
+  "budgetAmount": 20,
+  "currency": "CNY",
+  "matches": [
+    {
+      "matchId": "demo-match-001",
+      "matchDate": "2026-07-01",
+      "league": "Fictional Coastal League",
+      "homeTeam": "Northport United",
+      "awayTeam": "Lakeside City",
+      "kickoffTime": "2026-07-01T19:30:00+08:00"
+    }
+  ],
+  "markets": [
+    {
+      "marketId": "demo-market-001",
+      "matchId": "demo-match-001",
+      "playType": "WIN_DRAW_LOSS",
+      "selections": [
+        {
+          "selection": "HOME_WIN",
+          "odds": 2.05
+        },
+        {
+          "selection": "DRAW",
+          "odds": 3.10
+        },
+        {
+          "selection": "AWAY_WIN",
+          "odds": 3.40
+        }
+      ]
+    }
+  ]
+}
+

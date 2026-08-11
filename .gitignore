@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+
+# Frontend build output
+dist/
+coverage/
+playwright-report/
+test-results/
+output/
+*.tsbuildinfo
+
+# Java build output
+target/
+.gradle/
+
+# Local embedded database files
+apps/server/data/
+*.mv.db
+*.trace.db
+*.lock.db
+
+# IDE and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local env
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# Local Codex handoff and continuation notes
+handoff.md

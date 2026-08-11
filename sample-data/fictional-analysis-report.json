@@ -1,0 +1,39 @@
+{
+  "label": "DEMO DATA / FICTIONAL SAMPLE",
+  "reportId": "analysis-demo-001",
+  "snapshotId": "snapshot-demo-001",
+  "inputSourceType": "USER_SCREENSHOT_CONFIRMED",
+  "engineType": "MOCK_RULE_ENGINE",
+  "reportStatus": "GENERATED",
+  "probabilityAnalysis": [
+    {
+      "matchId": "demo-match-001",
+      "matchDate": "2026-07-01",
+      "league": "Fictional Coastal League",
+      "homeTeam": "Northport United",
+      "awayTeam": "Lakeside City",
+      "kickoffTime": "2026-07-01T19:30:00+08:00",
+      "selection": "AWAY_WIN",
+      "probabilityBand": "MEDIUM",
+      "rationale": "The rule engine uses only the user-confirmed fictional snapshot and keeps uncertainty visible."
+    }
+  ],
+  "riskWarnings": [
+    {
+      "riskCode": "INFO_RISK",
+      "riskLevel": "MEDIUM",
+      "message": "The first release uses a mock rule engine and fictional data only."
+    }
+  ],
+  "simulatedSelections": [
+    {
+      "matchId": "demo-match-001",
+      "playType": "WIN_DRAW_LOSS",
+      "selection": "AWAY_WIN",
+      "odds": 2.05,
+      "stakeAmount": 20,
+      "note": "Candidate only. Save it as a simulated plan before review."
+    }
+  ],
+  "complianceNotice": "Non-official, simulation-only technical research output. No certainty claim is made."
+}

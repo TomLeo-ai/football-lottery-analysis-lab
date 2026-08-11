@@ -1,0 +1,51 @@
+{
+  "sampleType": "DEMO DATA / FICTIONAL SAMPLE",
+  "planId": "sim-plan-000001",
+  "reviewStatus": "MISS",
+  "matchStatus": "MATCHED",
+  "matchConfidence": 0.98,
+  "itemSettlements": [
+    {
+      "planItemId": "sim-item-000001",
+      "matchId": "demo-match-001",
+      "selection": "AWAY_WIN",
+      "actualOutcome": "HOME_WIN",
+      "settlementStatus": "MISS",
+      "failureReason": "DIRECTION_ERROR"
+    }
+  ],
+  "failureReasons": ["DIRECTION_ERROR"],
+  "strategyRevisionRules": [
+    {
+      "ruleCode": "REVIEW_DIRECTION_WEIGHT",
+      "reasonCode": "DIRECTION_ERROR",
+      "suggestion": "Review direction weighting and reduce reliance on a single direction signal in the next strategy version."
+    }
+  ],
+  "resultSource": {
+    "sourceName": "Mock Public Result Provider",
+    "sourceUrl": "https://example.com/mock-public-results",
+    "sourceLicense": "Fictional sample for local tests only",
+    "fetchedAt": "2026-07-01T22:15:00+08:00",
+    "confidence": 0.98
+  },
+  "supportedSettlementStatuses": ["HIT", "MISS", "PARTIAL_HIT", "VOID", "PENDING", "NEEDS_REVIEW"],
+  "supportedFailureReasons": [
+    "DIRECTION_ERROR",
+    "PLAY_TYPE_ERROR",
+    "PARLAY_STRUCTURE_ERROR",
+    "ODDS_VALUE_ERROR",
+    "INFO_RISK",
+    "RANDOM_EVENT",
+    "DATA_ERROR",
+    "OCR_ERROR",
+    "USER_CONFIRMATION_ERROR",
+    "SOURCE_SCREENSHOT_INCOMPLETE",
+    "RESULT_MATCHING_ERROR",
+    "RESULT_SOURCE_CONFLICT",
+    "RESULT_NOT_AVAILABLE",
+    "MATCH_POSTPONED_OR_CANCELLED"
+  ],
+  "reviewedAt": "2026-07-01T22:20:00+08:00",
+  "complianceNotice": "Non-official simulated review sample for technical research. No certainty claim is made."
+}
