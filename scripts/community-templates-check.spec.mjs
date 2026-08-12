@@ -207,14 +207,9 @@ test('Adoption Issue Form matches the approved privacy and optional-ledger contr
   assertUniqueIds(form);
 });
 
-test('Issue chooser disables blank Issues and directs security reports privately', async () => {
+test('Issue chooser disables blank Issues and leaves security routing to SECURITY.md', async () => {
   const chooser = await readRepositoryYaml('.github/ISSUE_TEMPLATE/config.yml');
-  assert.equal(chooser.blank_issues_enabled, false);
-  assert.deepEqual(chooser.contact_links, [{
-    name: 'Security report / 安全漏洞报告',
-    url: securityPolicyUrl,
-    about: 'Report vulnerabilities privately through the Security Policy / 请按照安全策略私下报告漏洞'
-  }]);
+  assert.deepEqual(chooser, { blank_issues_enabled: false }, 'GitHub renders the native Security Policy route from SECURITY.md; custom contact links would duplicate it');
 });
 
 test('Pull Request template matches the approved bilingual review contract', async () => {
@@ -700,16 +695,18 @@ test('non-mapping roots and non-array bodies are aggregated without crashes', as
   );
 });
 
-test('security routing must be the single approved contact link', async () => {
+test('custom security contact links are rejected because SECURITY.md provides the native route', async () => {
   await withTemporaryRepository(
     (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/config.yml', (config) => {
-      config.contact_links[0].url = 'https://example.com/security';
-      config.contact_links.push({ name: 'Support', url: securityPolicyUrl, about: 'Public support' });
+      config.contact_links = [{
+        name: 'Security report / 安全漏洞报告',
+        url: securityPolicyUrl,
+        about: 'Report vulnerabilities privately through the Security Policy / 请按照安全策略私下报告漏洞'
+      }];
     }),
     async (root) => {
       const errors = joinedErrors(await validateCommunityTemplates(root));
-      assert.match(errors, /exactly one approved security contact link/i);
-      assert.match(errors, /security contact link must match the approved name, URL, and about text/i);
+      assert.match(errors, /contact_links must be omitted because SECURITY\.md provides GitHub's native private security route/i);
     }
   );
 });
