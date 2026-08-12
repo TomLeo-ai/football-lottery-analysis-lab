@@ -1,0 +1,771 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { copyFile, mkdir, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import YAML from 'yaml';
+import {
+  COMMUNITY_TEMPLATE_FILES,
+  validateCommunityTemplates,
+  validateIssueForm
+} from './community-templates-check.mjs';
+
+const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const securityPolicyUrl = 'https://github.com/TomLeo-ai/football-lottery-analysis-lab/security/policy';
+const moduleOptions = [
+  'Frontend / 前端', 'Backend / 后端', 'OCR', 'Analysis engine / 分析引擎',
+  'Simulated plan / 模拟方案', 'Result provider / 赛果同步', 'Review workflow / 复盘流程',
+  'LLM integration / 大模型集成', 'Documentation / 文档', 'Other / 其他'
+];
+
+async function readRepositoryText(relativePath) {
+  return readFile(path.join(repositoryRoot, relativePath), 'utf8');
+}
+
+async function readRepositoryYaml(relativePath) {
+  return YAML.parse(await readRepositoryText(relativePath));
+}
+
+function normalizeLineEndings(source) {
+  return source.replace(/\r\n?/g, '\n');
+}
+
+function fieldById(form, id) {
+  return form.body.find((field) => field.id === id);
+}
+
+function assertField(form, id, type, required) {
+  const field = fieldById(form, id);
+  assert.ok(field, `missing field: ${id}`);
+  assert.equal(field.type, type, `unexpected type for ${id}`);
+  assert.equal(field.validations?.required === true, required, `unexpected required state for ${id}`);
+  return field;
+}
+
+function assertRequiredCheckboxLabels(form, id, label, labels) {
+  const field = assertField(form, id, 'checkboxes', true);
+  assert.deepEqual(field.attributes, { label, options: labels.map((option) => ({ label: option, required: true })) }, `${id} attributes must match the approved policy contract`);
+  assert.deepEqual(field.validations, { required: true }, `${id} validations must match the approved policy contract`);
+  for (const option of field.attributes.options) {
+    assert.equal(option.required, true, `${id} options must all be required`);
+  }
+  return field;
+}
+
+function assertEnglishBeforeChinese(value, english, chinese) {
+  assert.equal(typeof value, 'string', 'user-visible value must be a string');
+  const englishIndex = value.indexOf(english);
+  const chineseIndex = value.indexOf(chinese);
+  assert.ok(englishIndex >= 0, `missing English text: ${english}`);
+  assert.ok(chineseIndex > englishIndex, `Chinese text must follow English text: ${chinese}`);
+}
+
+function assertExactIntro(form, value) {
+  assert.equal(form.body[0]?.type, 'markdown', 'first form item must be markdown');
+  assert.equal(form.body[0]?.attributes?.value, value, 'intro Markdown must match the approved policy contract');
+}
+
+function assertUniqueIds(form) {
+  const ids = form.body.map((field) => field.id).filter(Boolean);
+  assert.equal(new Set(ids).size, ids.length, 'field IDs must be unique');
+}
+
+function assertApprovedFields(form, approvedFields) {
+  for (const { id, type, attributes, validations } of approvedFields) {
+    const field = fieldById(form, id);
+    assert.equal(field.type, type, `unexpected type for ${id}`);
+    assert.deepEqual(field.attributes, attributes, `attributes for ${id} must match the approved contract`);
+    assert.deepEqual(field.validations, validations, `validations for ${id} must match the approved contract`);
+  }
+}
+
+function assertBodyOrder(form, expected) {
+  assert.deepEqual(form.body.map((field) => ({ id: field.id ?? null, type: field.type })), expected, 'body field order, IDs, and types must match the approved contract');
+}
+
+const bugFields = [
+  { id: 'version', type: 'input', attributes: { label: 'Project version / 项目版本', description: 'Provide a Release, commit SHA, or branch / 请填写 Release、提交 SHA 或分支', placeholder: 'Example / 示例: v0.1.1 or d4d4097' }, validations: { required: true } },
+  { id: 'area', type: 'dropdown', attributes: { label: 'Affected area / 影响模块', options: moduleOptions }, validations: { required: true } },
+  { id: 'environment', type: 'textarea', attributes: { label: 'Environment / 运行环境', description: 'Include OS, browser, Node, Java, and relevant database configuration without secrets / 请填写操作系统、浏览器、Node、Java 和必要的数据库配置，但不要包含秘密信息' }, validations: { required: true } },
+  { id: 'reproduction', type: 'textarea', attributes: { label: 'Reproduction steps / 复现步骤', description: 'Provide the smallest repeatable sequence / 请提供最小且可重复的操作步骤' }, validations: { required: true } },
+  { id: 'expected', type: 'textarea', attributes: { label: 'Expected behavior / 预期行为', description: 'Describe the observable correct result / 描述可观察到的正确结果' }, validations: { required: true } },
+  { id: 'actual', type: 'textarea', attributes: { label: 'Actual behavior / 实际行为', description: 'Describe what actually happened / 描述实际发生的情况' }, validations: { required: true } },
+  { id: 'frequency', type: 'dropdown', attributes: { label: 'Frequency / 出现频率', options: ['Every time / 每次出现', 'Intermittent / 偶发', 'First run only / 仅首次运行', 'Unknown / 尚不确定'] }, validations: undefined },
+  { id: 'logs', type: 'textarea', attributes: { label: 'Sanitized logs / 已脱敏日志', description: 'Remove credentials, cookies, private paths, and user data before pasting / 粘贴前请删除凭据、Cookie、私人路径和用户数据', render: 'shell' }, validations: undefined },
+  { id: 'additional_context', type: 'textarea', attributes: { label: 'Additional context / 补充信息', description: 'Add only information that is safe to publish / 仅添加适合公开的信息' }, validations: undefined }
+];
+const featureFields = [
+  { id: 'problem', type: 'textarea', attributes: { label: 'Problem or need / 问题或需求', description: 'Explain the current limitation / 说明当前限制' }, validations: { required: true } },
+  { id: 'use_case', type: 'textarea', attributes: { label: 'Use case / 使用场景', description: 'Explain who needs the outcome and in which workflow / 说明谁在什么流程中需要该结果' }, validations: { required: true } },
+  { id: 'proposed_outcome', type: 'textarea', attributes: { label: 'Proposed outcome / 期望结果', description: 'Describe the user-visible result without prescribing implementation / 描述用户可见结果，无需规定内部实现' }, validations: { required: true } },
+  { id: 'acceptance_criteria', type: 'textarea', attributes: { label: 'Acceptance criteria / 验收标准', description: 'Provide runnable, observable, repeatable conditions / 提供可运行、可观察、可重复的验收条件' }, validations: { required: true } },
+  { id: 'alternatives', type: 'textarea', attributes: { label: 'Alternatives considered / 已考虑的替代方案', description: 'Describe existing workarounds / 描述现有绕行方法' }, validations: undefined },
+  { id: 'scope_area', type: 'dropdown', attributes: { label: 'Scope area / 所属模块', options: moduleOptions }, validations: { required: true } },
+  { id: 'additional_context', type: 'textarea', attributes: { label: 'Additional context / 补充信息', description: 'Add only public, authorized references / 仅添加可公开且已获授权的参考信息' }, validations: undefined }
+];
+const adoptionFields = [
+  { id: 'version', type: 'input', attributes: { label: 'Version used / 使用版本', description: 'Provide a Release, commit SHA, or branch / 请填写 Release、提交 SHA 或分支' }, validations: { required: true } },
+  { id: 'relationship', type: 'dropdown', attributes: { label: 'Relationship to the project / 与项目的关系', options: ['Independent user / 独立用户', 'Organization user / 组织使用者', 'Integrator / 集成者', 'Contributor / 贡献者', 'Maintainer / 维护者', 'Other / 其他'] }, validations: { required: true } },
+  { id: 'environment', type: 'dropdown', attributes: { label: 'Environment / 使用环境', options: ['Local use / 本地使用', 'Test environment / 测试环境', 'Learning experiment / 学习实验', 'Internal evaluation / 内部评估', 'Other / 其他'] }, validations: { required: true } },
+  { id: 'use_case', type: 'textarea', attributes: { label: 'Use case / 使用场景', description: 'Describe the real purpose without private business or user data / 描述真实使用目的，但不要包含私人业务或用户数据' }, validations: { required: true } },
+  { id: 'experience', type: 'textarea', attributes: { label: 'Experience and feedback / 使用体验与反馈', description: 'Explain what was useful and what needs improvement / 说明哪些部分有用、哪些部分需要改进' }, validations: { required: true } },
+  { id: 'limitations', type: 'textarea', attributes: { label: 'Limitations encountered / 遇到的限制', description: 'Describe obstacles or shortcomings / 描述遇到的阻碍或不足' }, validations: undefined },
+  { id: 'public_reference', type: 'input', attributes: { label: 'Optional public reference / 可选公开参考', description: 'Public repository, article, demo, or integration URL you may publish / 你有权公开的仓库、文章、演示或集成链接' }, validations: undefined },
+  { id: 'additional_context', type: 'textarea', attributes: { label: 'Additional context / 补充信息', description: 'Add only information that is safe to publish / 仅添加适合公开的信息' }, validations: undefined }
+];
+
+test('Bug Issue Form matches the approved bilingual diagnostic and policy contract', async () => {
+  const form = await readRepositoryYaml('.github/ISSUE_TEMPLATE/bug-report.yml');
+  assert.equal(form.name, 'Bug Report / 缺陷报告');
+  assert.equal(form.description, 'Report a reproducible problem with sanitized evidence / 报告可复现的问题并提供已脱敏证据');
+  assert.equal(form.title, '[Bug]: ');
+  assertBodyOrder(form, [{ id: null, type: 'markdown' }, ...bugFields.map(({ id, type }) => ({ id, type })), { id: 'acknowledgements', type: 'checkboxes' }]);
+  assertApprovedFields(form, bugFields);
+  assertExactIntro(form, `Search existing Issues first. Security vulnerabilities must follow the [Security Policy](${securityPolicyUrl}) and must not be disclosed publicly.\nDo not submit API keys, tokens, cookies, private data, real betting records, official lottery screenshots, logos, copied assets, or official datasets.\n\n请先搜索已有 Issues。安全漏洞必须按照[安全策略](${securityPolicyUrl})报告，不得公开披露。\n请勿提交 API Key、Token、Cookie、私人数据、真实投注记录、官方彩票截图、Logo、复制素材或官方数据集。\n`);
+  const version = assertField(form, 'version', 'input', true);
+  assert.equal(version.attributes.label, 'Project version / 项目版本');
+  assertEnglishBeforeChinese(version.attributes.placeholder, 'Example', '示例');
+  const area = assertField(form, 'area', 'dropdown', true);
+  assert.deepEqual(area.attributes.options, moduleOptions);
+  for (const id of ['environment', 'reproduction', 'expected', 'actual']) assertField(form, id, 'textarea', true);
+  const frequency = assertField(form, 'frequency', 'dropdown', false);
+  assert.deepEqual(frequency.attributes.options, ['Every time / 每次出现', 'Intermittent / 偶发', 'First run only / 仅首次运行', 'Unknown / 尚不确定']);
+  assertField(form, 'logs', 'textarea', false);
+  assert.equal(fieldById(form, 'logs').attributes.render, 'shell');
+  assertField(form, 'additional_context', 'textarea', false);
+  assertRequiredCheckboxLabels(form, 'acknowledgements', 'Required acknowledgements / 必须确认', [
+    'I searched existing Issues and did not find the same problem. / 我已搜索现有 Issues，未发现相同问题。',
+    'I removed API keys, tokens, cookies, private information, and real user data. / 我已删除 API Key、Token、Cookie、私人信息和真实用户数据。',
+    'I did not attach official lottery screenshots, logos, copied assets, or official datasets. / 我未上传官方彩票截图、Logo、复制素材或官方数据集。',
+    'This report contains no real purchase, payment, ticketing, betting record, profit promise, or winning guarantee. / 本报告不包含真实购买、支付、出票、投注记录、收益承诺或中奖保证。',
+    'I agree to follow the Code of Conduct and Contributing guide. / 我同意遵守行为准则和贡献指南。'
+  ]);
+  assertUniqueIds(form);
+});
+
+test('Feature Issue Form matches the approved simulation-only policy contract', async () => {
+  const form = await readRepositoryYaml('.github/ISSUE_TEMPLATE/feature-request.yml');
+  assert.equal(form.name, 'Feature Request / 功能建议');
+  assert.equal(form.description, 'Propose a verifiable improvement within the simulation-only boundary / 在仅模拟边界内提出可验证改进');
+  assert.equal(form.title, '[Feature]: ');
+  assertBodyOrder(form, [{ id: null, type: 'markdown' }, ...featureFields.map(({ id, type }) => ({ id, type })), { id: 'scope_confirmation', type: 'checkboxes' }]);
+  assertApprovedFields(form, featureFields);
+  assertExactIntro(form, 'Describe the user problem and observable outcome. Keep proposals within research, fictional samples, simulation, and review workflows.\nDo not request real purchase, payment, ticketing, official-data crawling, access-control bypass, profit promises, or winning guarantees.\n\n请描述用户问题和可观察结果。建议必须限定在研究、虚构样例、模拟和复盘流程内。\n不得要求真实购买、支付、出票、官方数据抓取、绕过访问控制、收益承诺或中奖保证。\n');
+  for (const id of ['problem', 'use_case', 'proposed_outcome', 'acceptance_criteria']) assertField(form, id, 'textarea', true);
+  assertField(form, 'alternatives', 'textarea', false);
+  const scopeArea = assertField(form, 'scope_area', 'dropdown', true);
+  assert.deepEqual(scopeArea.attributes.options, moduleOptions);
+  assertField(form, 'additional_context', 'textarea', false);
+  assertRequiredCheckboxLabels(form, 'scope_confirmation', 'Required scope confirmation / 必须确认范围', [
+    'This proposal remains within analysis, research, fictional samples, simulation, or review workflows. / 本建议仍属于分析、研究、虚构样例、模拟或复盘流程。',
+    'It does not request real purchase, payment, ticketing, proxy purchase, following orders, deposit, or withdrawal. / 本建议不要求真实购买、支付、出票、代购、跟单、充值或提现。',
+    'It does not request crawling, access-control bypass, caching, mirroring, or republication of official lottery data. / 本建议不要求抓取、绕过访问控制、缓存、镜像或重新发布官方彩票数据。',
+    'It contains no profit, certainty, recovery-of-loss, accuracy, or winning guarantee. / 本建议不包含利润、确定性、回本、准确率或中奖保证。',
+    'It contains no secrets, private data, or restricted material. / 本建议不包含秘密信息、私人数据或受限制素材。',
+    'I agree to follow the Code of Conduct and Contributing guide. / 我同意遵守行为准则和贡献指南。'
+  ]);
+  assert.equal(fieldById(form, 'conduct_confirmation'), undefined, 'Feature conduct acknowledgement belongs in scope_confirmation');
+  assertUniqueIds(form);
+});
+
+test('Adoption Issue Form matches the approved privacy and optional-ledger contract', async () => {
+  const form = await readRepositoryYaml('.github/ISSUE_TEMPLATE/adoption-report.yml');
+  assert.equal(form.name, 'Adoption Report / 使用与采用反馈');
+  assert.equal(form.description, 'Share real use and optionally permit a verified public evidence link / 分享真实使用情况，并可选择授权公开证据引用');
+  assert.equal(form.title, '[Adoption]: ');
+  assertBodyOrder(form, [{ id: null, type: 'markdown' }, ...adoptionFields.map(({ id, type }) => ({ id, type })), { id: 'privacy_confirmation', type: 'checkboxes' }, { id: 'evidence_consent', type: 'checkboxes' }, { id: 'conduct_confirmation', type: 'checkboxes' }]);
+  assertApprovedFields(form, adoptionFields);
+  assert.equal(form.labels, undefined, 'Adoption form must not depend on a repository label that may not exist');
+  assertExactIntro(form, 'An Adoption Issue is feedback, not automatic proof. Maintainers verify consent, relationship, version, use case, and public references before updating the Public Evidence Ledger.\nDo not submit API keys, tokens, cookies, private data, real user screenshots, real betting records, personal financial information, or guaranteed outcomes.\n\nAdoption Issue 是使用反馈，不会自动成为采用证明。维护者必须核验授权、关系、版本、场景和公开参考，才能更新公开证据账本。\n请勿提交 API Key、Token、Cookie、私人数据、真实用户截图、真实投注记录、个人财务信息或结果保证。\n');
+  assertField(form, 'version', 'input', true);
+  assertField(form, 'relationship', 'dropdown', true);
+  assert.deepEqual(fieldById(form, 'relationship').attributes.options, ['Independent user / 独立用户', 'Organization user / 组织使用者', 'Integrator / 集成者', 'Contributor / 贡献者', 'Maintainer / 维护者', 'Other / 其他']);
+  assertField(form, 'environment', 'dropdown', true);
+  assert.deepEqual(fieldById(form, 'environment').attributes.options, ['Local use / 本地使用', 'Test environment / 测试环境', 'Learning experiment / 学习实验', 'Internal evaluation / 内部评估', 'Other / 其他']);
+  for (const id of ['use_case', 'experience']) assertField(form, id, 'textarea', true);
+  assertField(form, 'limitations', 'textarea', false);
+  assertField(form, 'public_reference', 'input', false);
+  assertField(form, 'additional_context', 'textarea', false);
+  assertRequiredCheckboxLabels(form, 'privacy_confirmation', 'Required privacy and evidence confirmation / 必须确认隐私与证据边界', [
+    'The content contains no API key, token, cookie, private data, or real user screenshot. / 内容不包含 API Key、Token、Cookie、私人数据或真实用户截图。',
+    'The content contains no real betting record, personal financial information, or gambling outcome. / 内容不包含真实投注记录、个人财务信息或博彩结果。',
+    'The report makes no accuracy, profit, winning, or loss-recovery guarantee. / 本报告不声称项目能够保证准确率、利润、中奖或损失追回。',
+    'I have permission to publish any supplied public reference. / 如果填写公开参考链接，我确认有权公开该链接。'
+  ]);
+  const consent = assertField(form, 'evidence_consent', 'checkboxes', false);
+  assert.equal(consent.attributes.label, 'Optional Public Evidence Ledger consent / 可选公开证据账本授权');
+  assert.equal(consent.attributes.description, 'Leaving this unchecked does not block submission. Consent permits a link only after maintainer verification and can be withdrawn. / 不勾选也可正常提交。授权只允许维护者核验后引用，且可以撤回。');
+  assert.deepEqual(consent.attributes.options, [{ label: "I authorize maintainers to link this public Issue from the repository's Public Evidence Ledger after verification. / 在维护者完成核验后，我同意维护者从仓库的公开采用证据账本中引用此公开 Issue。" }]);
+  assert.deepEqual(consent.attributes, {
+    label: 'Optional Public Evidence Ledger consent / 可选公开证据账本授权',
+    description: 'Leaving this unchecked does not block submission. Consent permits a link only after maintainer verification and can be withdrawn. / 不勾选也可正常提交。授权只允许维护者核验后引用，且可以撤回。',
+    options: [{ label: "I authorize maintainers to link this public Issue from the repository's Public Evidence Ledger after verification. / 在维护者完成核验后，我同意维护者从仓库的公开采用证据账本中引用此公开 Issue。" }]
+  }, 'evidence consent attributes must match the approved contract');
+  assert.strictEqual(consent.validations, undefined, 'evidence consent must not declare validations');
+  assertRequiredCheckboxLabels(form, 'conduct_confirmation', 'Code of Conduct / 行为准则', ['I agree to follow the Code of Conduct. / 我同意遵守行为准则。']);
+  assertUniqueIds(form);
+});
+
+test('Issue chooser disables blank Issues and directs security reports privately', async () => {
+  const chooser = await readRepositoryYaml('.github/ISSUE_TEMPLATE/config.yml');
+  assert.equal(chooser.blank_issues_enabled, false);
+  assert.deepEqual(chooser.contact_links, [{
+    name: 'Security report / 安全漏洞报告',
+    url: securityPolicyUrl,
+    about: 'Report vulnerabilities privately through the Security Policy / 请按照安全策略私下报告漏洞'
+  }]);
+});
+
+test('Pull Request template matches the approved bilingual review contract', async () => {
+  const source = normalizeLineEndings(await readRepositoryText('.github/pull_request_template.md'));
+  const approvedTemplate = [
+    '## Summary / 变更摘要',
+    '',
+    '<!-- Describe the problem and user-observable outcome. / 描述问题和用户可观察到的结果。 -->',
+    '',
+    '## Related Issue / 关联 Issue',
+    '',
+    '<!-- Use `Closes #123` or `Refs #123`. Explain why no Issue exists when applicable. / 使用关联语法；如无 Issue，请说明原因。 -->',
+    '',
+    '## Changes / 主要改动',
+    '',
+    '-',
+    '',
+    '## Verification / 验证证据',
+    '',
+    '<!-- Record complete commands, observed results, test counts, and anything not verified. / 记录完整命令、实际结果、测试数量和未验证项目。 -->',
+    '',
+    '```powershell',
+    'npm.cmd run verify:stage8',
+    '```',
+    '',
+    '- [ ] Full verification completed successfully. / 完整验证执行成功。',
+    '- [ ] Test counts and failures are recorded above. / 已记录测试数量和失败情况。',
+    '- [ ] Unverified behavior is explicitly listed. / 已明确列出未验证行为。',
+    '',
+    '## Compliance and Data Safety / 合规与数据安全',
+    '',
+    '- [ ] This change remains non-official and simulation-only. / 本次变更继续保持非官方、仅模拟边界。',
+    '- [ ] It does not add real purchase, payment, ticketing, proxy purchase, following orders, deposit, or withdrawal. / 本次变更不增加真实购买、支付、出票、代购、跟单、充值或提现能力。',
+    '- [ ] It does not crawl, bypass controls, cache, mirror, or republish official lottery data. / 本次变更不抓取、绕过控制、缓存、镜像或重新发布官方彩票数据。',
+    '- [ ] It contains no API keys, tokens, cookies, private data, real user screenshots, or restricted assets. / 本次变更不包含 API Key、Token、Cookie、私人数据、真实用户截图或受限制素材。',
+    '- [ ] Fictional examples remain labeled `DEMO DATA / FICTIONAL SAMPLE`. / 虚构示例继续保留明确标记。',
+    '- [ ] It makes no profit, certainty, recovery-of-loss, accuracy, or winning guarantee. / 本次变更不作出利润、确定性、回本、准确率或中奖保证。',
+    '',
+    '## AI Assistance Disclosure / AI 辅助披露',
+    '',
+    'Select every applicable option and describe each tool and its scope. Select No AI assistance only when no AI tool was used. / 请选择所有适用项，并说明每个工具及其辅助范围。仅在完全未使用 AI 工具时勾选“未使用 AI 辅助”。',
+    '',
+    '- [ ] No AI assistance / 未使用 AI 辅助',
+    '- [ ] Codex or OpenAI assistance / 使用 Codex 或 OpenAI 辅助',
+    '- [ ] Other AI assistance / 使用其他 AI 辅助',
+    '',
+    'Assistance scope / 辅助范围：',
+    '',
+    '<!-- List each tool and its scope: exploration, code, tests, documentation, review, or other. AI output is advisory and does not replace human approval. / 请列出每个工具及其辅助范围：探索、代码、测试、文档、审阅或其他。AI 输出仅供参考，不能替代人工批准。 -->',
+    '',
+    'Maintainer-authored PRs are not external contribution or adoption evidence. / 维护者提交的 PR 不属于外部贡献或采用证据。',
+    '',
+    '## Release Impact / 发布影响',
+    '',
+    'Select one. / 请选择一项。',
+    '',
+    '- [ ] No Release / 不发布版本',
+    '- [ ] Patch Release / 补丁版本',
+    '- [ ] Minor Release / 次版本',
+    '',
+    'Compatibility, upgrade notes, and known limitations / 兼容性、升级说明和已知限制：',
+    '',
+    '## Reviewer Notes / 审阅说明',
+    '',
+    '<!-- Only the maintainer or actual reviewer should check these after completing review. These checkboxes do not replace GitHub review or branch protection. / 仅由维护者或实际审阅者在完成审阅后勾选。以下复选框不能替代 GitHub 审阅或分支保护。 -->',
+    '',
+    '- [ ] Human review covered the focused diff and verification evidence. / 人工审阅已覆盖聚焦差异和验证证据。',
+    '- [ ] Human review covered compliance, privacy, and data boundaries. / 人工审阅已覆盖合规、隐私和数据边界。',
+    '- [ ] AI-generated review did not replace maintainer approval. / AI 生成的审阅未替代维护者批准。'
+  ].join('\n') + '\n';
+  const headings = [
+    '## Summary / 变更摘要',
+    '## Related Issue / 关联 Issue',
+    '## Changes / 主要改动',
+    '## Verification / 验证证据',
+    '## Compliance and Data Safety / 合规与数据安全',
+    '## AI Assistance Disclosure / AI 辅助披露',
+    '## Release Impact / 发布影响',
+    '## Reviewer Notes / 审阅说明'
+  ];
+  const checklistLines = [
+    '- [ ] Full verification completed successfully. / 完整验证执行成功。',
+    '- [ ] Test counts and failures are recorded above. / 已记录测试数量和失败情况。',
+    '- [ ] Unverified behavior is explicitly listed. / 已明确列出未验证行为。',
+    '- [ ] This change remains non-official and simulation-only. / 本次变更继续保持非官方、仅模拟边界。',
+    '- [ ] It does not add real purchase, payment, ticketing, proxy purchase, following orders, deposit, or withdrawal. / 本次变更不增加真实购买、支付、出票、代购、跟单、充值或提现能力。',
+    '- [ ] It does not crawl, bypass controls, cache, mirror, or republish official lottery data. / 本次变更不抓取、绕过控制、缓存、镜像或重新发布官方彩票数据。',
+    '- [ ] It contains no API keys, tokens, cookies, private data, real user screenshots, or restricted assets. / 本次变更不包含 API Key、Token、Cookie、私人数据、真实用户截图或受限制素材。',
+    '- [ ] Fictional examples remain labeled `DEMO DATA / FICTIONAL SAMPLE`. / 虚构示例继续保留明确标记。',
+    '- [ ] It makes no profit, certainty, recovery-of-loss, accuracy, or winning guarantee. / 本次变更不作出利润、确定性、回本、准确率或中奖保证。',
+    '- [ ] No AI assistance / 未使用 AI 辅助',
+    '- [ ] Codex or OpenAI assistance / 使用 Codex 或 OpenAI 辅助',
+    '- [ ] Other AI assistance / 使用其他 AI 辅助',
+    '- [ ] No Release / 不发布版本',
+    '- [ ] Patch Release / 补丁版本',
+    '- [ ] Minor Release / 次版本',
+    '- [ ] Human review covered the focused diff and verification evidence. / 人工审阅已覆盖聚焦差异和验证证据。',
+    '- [ ] Human review covered compliance, privacy, and data boundaries. / 人工审阅已覆盖合规、隐私和数据边界。',
+    '- [ ] AI-generated review did not replace maintainer approval. / AI 生成的审阅未替代维护者批准。'
+  ];
+
+  assert.deepEqual(source.match(/^## .+$/gm), headings, 'PR headings and order must match the approved contract');
+  assert.deepEqual(source.match(/^- \[ \] .+$/gm), checklistLines, 'PR checklist lines and order must match the approved contract');
+  assert.ok(source.includes('<!-- Use `Closes #123` or `Refs #123`. Explain why no Issue exists when applicable. / 使用关联语法；如无 Issue，请说明原因。 -->'));
+  assert.ok(source.includes('npm.cmd run verify:stage8'));
+  assert.ok(source.includes('Select every applicable option and describe each tool and its scope. Select No AI assistance only when no AI tool was used. / 请选择所有适用项，并说明每个工具及其辅助范围。仅在完全未使用 AI 工具时勾选“未使用 AI 辅助”。'));
+  assert.ok(source.includes('<!-- List each tool and its scope: exploration, code, tests, documentation, review, or other. AI output is advisory and does not replace human approval. / 请列出每个工具及其辅助范围：探索、代码、测试、文档、审阅或其他。AI 输出仅供参考，不能替代人工批准。 -->'));
+  assert.ok(source.includes('Maintainer-authored PRs are not external contribution or adoption evidence. / 维护者提交的 PR 不属于外部贡献或采用证据。'));
+  assert.ok(source.includes('Select one. / 请选择一项。'));
+  assert.ok(source.includes('Compatibility, upgrade notes, and known limitations / 兼容性、升级说明和已知限制：'));
+  assert.ok(source.includes('<!-- Only the maintainer or actual reviewer should check these after completing review. These checkboxes do not replace GitHub review or branch protection. / 仅由维护者或实际审阅者在完成审阅后勾选。以下复选框不能替代 GitHub 审阅或分支保护。 -->'));
+  assert.equal(normalizeLineEndings(approvedTemplate.replaceAll('\n', '\r\n')), approvedTemplate, 'CRLF content must normalize to the approved contract');
+  assert.equal(source, approvedTemplate, 'PR template must match the complete approved contract');
+});
+
+async function withTemporaryRepository(mutator, assertion) {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'community-templates-'));
+  try {
+    for (const relativePath of COMMUNITY_TEMPLATE_FILES) {
+      const destination = path.join(root, relativePath);
+      await mkdir(path.dirname(destination), { recursive: true });
+      await copyFile(path.join(repositoryRoot, relativePath), destination);
+    }
+    await mutator(root);
+    await assertion(root);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+async function mutateYaml(root, relativePath, mutation) {
+  const absolutePath = path.join(root, relativePath);
+  const value = YAML.parse(await readFile(absolutePath, 'utf8'));
+  mutation(value);
+  await writeFile(absolutePath, YAML.stringify(value), 'utf8');
+}
+
+async function mutateText(root, relativePath, mutation) {
+  const absolutePath = path.join(root, relativePath);
+  const source = normalizeLineEndings(await readFile(absolutePath, 'utf8'));
+  await writeFile(absolutePath, mutation(source), 'utf8');
+}
+
+function joinedErrors(result) {
+  return result.errors.map((error) => `${error.file}: ${error.message}`).join('\n');
+}
+
+test('repository community templates pass reusable validation', async () => {
+  const result = await validateCommunityTemplates(repositoryRoot);
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.filesChecked, 5);
+});
+
+test('Issue Forms reject every unapproved top-level key, including assignees', async () => {
+  const issueFormPaths = [
+    '.github/ISSUE_TEMPLATE/bug-report.yml',
+    '.github/ISSUE_TEMPLATE/feature-request.yml',
+    '.github/ISSUE_TEMPLATE/adoption-report.yml'
+  ];
+  await withTemporaryRepository(
+    async (root) => {
+      for (const [index, relativePath] of issueFormPaths.entries()) {
+        await mutateYaml(root, relativePath, (form) => {
+          form.assignees = index === 1 ? ['octocat'] : [];
+          form.unapproved_key = 'not allowed';
+        });
+      }
+    },
+    async (root) => {
+      const result = await validateCommunityTemplates(root);
+      for (const relativePath of issueFormPaths) {
+        const messages = result.errors.filter((error) => error.file === relativePath).map((error) => error.message);
+        assert.ok(messages.some((message) => /unapproved top-level key "assignees"/i.test(message)), `${relativePath} must reject assignees`);
+        assert.ok(messages.some((message) => /unapproved top-level key "unapproved_key"/i.test(message)), `${relativePath} must reject unknown top-level keys`);
+      }
+    }
+  );
+});
+
+test('Markdown policy introduction rejects item and attribute extensions', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/bug-report.yml', (form) => {
+      form.body[0].extra = true;
+      form.body[0].attributes.render = 'markdown';
+    }),
+    async (root) => {
+      const errors = joinedErrors(await validateCommunityTemplates(root));
+      assert.match(errors, /Markdown policy introduction.*unapproved key "extra"/i);
+      assert.match(errors, /Markdown policy introduction attributes.*unapproved key "render"/i);
+    }
+  );
+});
+
+test('required checkbox groups reject unapproved field keys', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/feature-request.yml', (form) => {
+      fieldById(form, 'scope_confirmation').extra = true;
+    }),
+    async (root) => {
+      const errors = joinedErrors(await validateCommunityTemplates(root));
+      assert.match(errors, /scope_confirmation.*unapproved key "extra"/i);
+    }
+  );
+});
+
+test('optional Adoption evidence consent rejects unapproved field keys', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/adoption-report.yml', (form) => {
+      fieldById(form, 'evidence_consent').extra = true;
+    }),
+    async (root) => {
+      const errors = joinedErrors(await validateCommunityTemplates(root));
+      assert.match(errors, /evidence_consent.*unapproved key "extra"/i);
+    }
+  );
+});
+
+test('Issue chooser rejects unapproved top-level keys', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/config.yml', (config) => {
+      config.extra = true;
+    }),
+    async (root) => {
+      const errors = joinedErrors(await validateCommunityTemplates(root));
+      assert.match(errors, /chooser.*unapproved top-level key "extra"/i);
+    }
+  );
+});
+
+test('validateIssueForm ignores external rule overrides and reports unknown files structurally', async () => {
+  const file = '.github/ISSUE_TEMPLATE/bug-report.yml';
+  const source = await readRepositoryText(file);
+  const form = YAML.parse(source);
+  const unknownFiles = [
+    '.github/ISSUE_TEMPLATE/unknown.yml',
+    '__proto__',
+    'constructor',
+    'toString',
+    'hasOwnProperty'
+  ];
+
+  assert.equal(validateIssueForm.length, 3);
+  assert.deepEqual(validateIssueForm(form, source, file, {}), []);
+  assert.deepEqual(validateIssueForm(form, source, file, 'bad'), []);
+  for (const unknownFile of unknownFiles) {
+    assert.deepEqual(validateIssueForm(form, source, unknownFile, {}), [{
+      file: unknownFile,
+      message: 'no approved Issue Form rules are configured'
+    }]);
+  }
+});
+
+test('a missing required checkbox group reports one focused error', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/feature-request.yml', (form) => {
+      form.body = form.body.filter((field) => field.id !== 'scope_confirmation');
+    }),
+    async (root) => {
+      const result = await validateCommunityTemplates(root);
+      const messages = result.errors.filter((error) => error.file.endsWith('feature-request.yml') && /scope_confirmation/i.test(error.message));
+      assert.equal(messages.length, 1);
+      assert.match(messages[0].message, /missing required checkbox group/i);
+    }
+  );
+});
+
+test('field contract discrepancies do not add a synonymous complete-field error', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/bug-report.yml', (form) => {
+      const logs = fieldById(form, 'logs');
+      logs.type = 'input';
+      logs.validations = { required: true };
+      delete logs.attributes.render;
+    }),
+    async (root) => {
+      const messages = (await validateCommunityTemplates(root)).errors
+        .filter((error) => error.file.endsWith('bug-report.yml') && /field "logs"/i.test(error.message))
+        .map((error) => error.message);
+      assert.ok(messages.some((message) => /must have type "textarea"/i.test(message)));
+      assert.ok(messages.some((message) => /must remain optional/i.test(message)));
+      assert.ok(messages.some((message) => /approved attributes contract/i.test(message)));
+      assert.equal(messages.some((message) => /complete approved field contract/i.test(message)), false);
+    }
+  );
+});
+
+test('invalid YAML is rejected', async () => {
+  await withTemporaryRepository(
+    (root) => writeFile(path.join(root, '.github/ISSUE_TEMPLATE/bug-report.yml'), 'body: [', 'utf8'),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /invalid YAML/i)
+  );
+});
+
+test('duplicate field IDs are rejected', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/bug-report.yml', (form) => {
+      form.body.push({ ...form.body.find((field) => field.id === 'version') });
+    }),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /duplicate field id "version"/i)
+  );
+});
+
+test('missing required fields are rejected', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/bug-report.yml', (form) => {
+      form.body = form.body.filter((field) => field.id !== 'actual');
+    }),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /missing required field "actual"/i)
+  );
+});
+
+test('missing compliance acknowledgements are rejected', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/feature-request.yml', (form) => {
+      form.body = form.body.filter((field) => field.id !== 'scope_confirmation');
+    }),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /scope_confirmation.*required checkbox group/i)
+  );
+});
+
+test('blank Issues cannot be enabled', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/config.yml', (config) => {
+      config.blank_issues_enabled = true;
+    }),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /blank_issues_enabled must be false/i)
+  );
+});
+
+test('Adoption evidence consent cannot become required', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/adoption-report.yml', (form) => {
+      const consent = form.body.find((field) => field.id === 'evidence_consent');
+      consent.validations = { required: true };
+      consent.attributes.options[0].required = true;
+    }),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /evidence_consent.*must remain optional/i)
+  );
+});
+
+test('Adoption evidence consent cannot be removed', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/adoption-report.yml', (form) => {
+      form.body = form.body.filter((field) => field.id !== 'evidence_consent');
+    }),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /missing optional evidence consent field/i)
+  );
+});
+
+test('PR verification section cannot be removed', async () => {
+  await withTemporaryRepository(
+    (root) => mutateText(root, '.github/pull_request_template.md', (source) => source.replace('## Verification / 验证证据', '## Checks')),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /missing PR heading.*Verification/i)
+  );
+});
+
+test('PR AI disclosure section cannot be removed', async () => {
+  await withTemporaryRepository(
+    (root) => mutateText(root, '.github/pull_request_template.md', (source) => source.replace('## AI Assistance Disclosure / AI 辅助披露', '## Tooling')),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /missing PR heading.*AI Assistance/i)
+  );
+});
+
+test('fields that solicit secrets or real betting records are rejected together', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/bug-report.yml', (form) => {
+      form.body.push({ type: 'input', id: 'api_key', attributes: { label: 'Credential' } });
+      form.body.push({ type: 'textarea', id: 'betting_record', attributes: { label: 'Record' } });
+    }),
+    async (root) => {
+      const errors = joinedErrors(await validateCommunityTemplates(root));
+      assert.match(errors, /dangerous field id "api_key"/i);
+      assert.match(errors, /dangerous field id "betting_record"/i);
+    }
+  );
+});
+
+test('optional fields cannot silently become required', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/feature-request.yml', (form) => {
+      form.body.find((field) => field.id === 'alternatives').validations = { required: true };
+    }),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /field "alternatives" must remain optional/i)
+  );
+});
+
+test('approved field attributes cannot lose required metadata', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/bug-report.yml', (form) => {
+      delete form.body.find((field) => field.id === 'logs').attributes.render;
+    }),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /field "logs".*approved attributes contract/i)
+  );
+});
+
+test('bilingual but policy-reversing field descriptions are rejected', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/feature-request.yml', (form) => {
+      const field = form.body.find((item) => item.id === 'additional_context');
+      field.attributes.description = field.attributes.description
+        .replace('Add only public, authorized references', ['Supports real', 'payment and winning guarantees'].join(' '))
+        .replace('仅添加可公开且已获授权的参考信息', ['支持真实', '\u652f\u4ed8\u548c\u4e2d\u5956\u4fdd\u8bc1'].join(''));
+    }),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /field "additional_context".*approved attributes contract/i)
+  );
+});
+
+test('required checkbox options cannot silently become optional', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/bug-report.yml', (form) => {
+      form.body.find((field) => field.id === 'acknowledgements').attributes.options[1].required = false;
+    }),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /acknowledgements.*every option required/i)
+  );
+});
+
+test('approved safety sentences cannot be truncated or semantically reversed', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/feature-request.yml', (form) => {
+      const confirmation = form.body.find((field) => field.id === 'scope_confirmation');
+      confirmation.attributes.options[1].label = confirmation.attributes.options[1].label
+        .replace('does not request', 'supports')
+        .replace('不要求', '支持');
+    }),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /scope_confirmation.*approved policy options/i)
+  );
+});
+
+test('unsupported types and malformed body items are reported without crashing', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/bug-report.yml', (form) => {
+      form.body.push(null, 'not-a-mapping', { type: 'upload', id: 'attachment', attributes: { label: 'Attachment' } });
+    }),
+    async (root) => {
+      const errors = joinedErrors(await validateCommunityTemplates(root));
+      assert.match(errors, /body item .*must be a mapping/i);
+      assert.match(errors, /unsupported field type "upload"/i);
+    }
+  );
+});
+
+test('dropdown options must remain arrays with the approved taxonomy', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/feature-request.yml', (form) => {
+      form.body.find((field) => field.id === 'scope_area').attributes.options = 'Frontend / 前端';
+    }),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /scope_area.*options must be an array/i)
+  );
+});
+
+test('optional consent options with an invalid shape are rejected without crashing', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/adoption-report.yml', (form) => {
+      form.body.find((field) => field.id === 'evidence_consent').attributes.options = null;
+    }),
+    async (root) => {
+      const result = await validateCommunityTemplates(root);
+      const errors = joinedErrors(result);
+      assert.match(errors, /evidence_consent.*options must be an array/i);
+      assert.doesNotMatch(errors, /evidence_consent.*must remain optional/i);
+      assert.equal(result.errors.filter((error) => error.file.endsWith('adoption-report.yml') && /evidence_consent/i.test(error.message)).length, 2);
+    }
+  );
+});
+
+test('non-mapping roots and non-array bodies are aggregated without crashes', async () => {
+  await withTemporaryRepository(
+    async (root) => {
+      await writeFile(path.join(root, '.github/ISSUE_TEMPLATE/bug-report.yml'), '[]\n', 'utf8');
+      await writeFile(path.join(root, '.github/ISSUE_TEMPLATE/feature-request.yml'), 'null\n', 'utf8');
+      await writeFile(path.join(root, '.github/ISSUE_TEMPLATE/adoption-report.yml'), 'name: Adoption\nbody: null\n', 'utf8');
+      await writeFile(path.join(root, '.github/ISSUE_TEMPLATE/config.yml'), 'security\n', 'utf8');
+    },
+    async (root) => {
+      const result = await validateCommunityTemplates(root);
+      const errors = joinedErrors(result);
+      assert.match(errors, /bug-report\.yml: form root must be a mapping/i);
+      assert.match(errors, /feature-request\.yml: form root must be a mapping/i);
+      assert.match(errors, /adoption-report\.yml: top-level "body" must be an array/i);
+      assert.match(errors, /config\.yml: chooser root must be a mapping/i);
+      assert.equal(result.filesChecked, 5);
+    }
+  );
+});
+
+test('security routing must be the single approved contact link', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/config.yml', (config) => {
+      config.contact_links[0].url = 'https://example.com/security';
+      config.contact_links.push({ name: 'Support', url: securityPolicyUrl, about: 'Public support' });
+    }),
+    async (root) => {
+      const errors = joinedErrors(await validateCommunityTemplates(root));
+      assert.match(errors, /exactly one approved security contact link/i);
+      assert.match(errors, /security contact link must match the approved name, URL, and about text/i);
+    }
+  );
+});
+
+test('PR headings cannot be reordered', async () => {
+  await withTemporaryRepository(
+    (root) => mutateText(root, '.github/pull_request_template.md', (source) => {
+      const verification = source.indexOf('## Verification / 验证证据');
+      const compliance = source.indexOf('## Compliance and Data Safety / 合规与数据安全');
+      const ai = source.indexOf('## AI Assistance Disclosure / AI 辅助披露');
+      return source.slice(0, verification) + source.slice(compliance, ai) + source.slice(verification, compliance) + source.slice(ai);
+    }),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /PR headings must appear exactly once in the approved order/i)
+  );
+});
+
+test('PR governance lines cannot be moved to the wrong section', async () => {
+  const governanceLine = 'Maintainer-authored PRs are not external contribution or adoption evidence. / 维护者提交的 PR 不属于外部贡献或采用证据。';
+  await withTemporaryRepository(
+    (root) => mutateText(root, '.github/pull_request_template.md', (source) => source.replace(`${governanceLine}\n\n## Release Impact`, `## Release Impact`).replace('Select one. / 请选择一项。', `Select one. / 请选择一项。\n\n${governanceLine}`)),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /AI Assistance Disclosure.*missing approved governance line/i)
+  );
+});
+
+test('PR Summary guidance cannot be deleted', async () => {
+  const guidance = '<!-- Describe the problem and user-observable outcome. / 描述问题和用户可观察到的结果。 -->';
+  await withTemporaryRepository(
+    (root) => mutateText(root, '.github/pull_request_template.md', (source) => source.replace(`${guidance}\n`, '')),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /complete approved normalized source/i)
+  );
+});
+
+test('PR sections cannot add unapproved contradictory guidance', async () => {
+  await withTemporaryRepository(
+    (root) => mutateText(root, '.github/pull_request_template.md', (source) => source.replace(
+      'Maintainer-authored PRs are not external contribution or adoption evidence.',
+      'AI output replaces human approval. / AI 输出可以替代人工批准。\n\nMaintainer-authored PRs are not external contribution or adoption evidence.'
+    )),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /complete approved normalized source/i)
+  );
+});
+
+test('read and parse failures do not stop validation of remaining files', async () => {
+  await withTemporaryRepository(
+    async (root) => {
+      await writeFile(path.join(root, '.github/ISSUE_TEMPLATE/bug-report.yml'), 'body: [', 'utf8');
+      await unlink(path.join(root, '.github/pull_request_template.md'));
+      await mutateYaml(root, '.github/ISSUE_TEMPLATE/config.yml', (config) => {
+        config.blank_issues_enabled = true;
+      });
+    },
+    async (root) => {
+      const errors = joinedErrors(await validateCommunityTemplates(root));
+      assert.match(errors, /bug-report\.yml: invalid YAML/i);
+      assert.match(errors, /pull_request_template\.md: cannot read required file/i);
+      assert.match(errors, /blank_issues_enabled must be false/i);
+    }
+  );
+});

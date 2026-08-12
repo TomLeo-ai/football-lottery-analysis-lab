@@ -1,0 +1,88 @@
+name: Feature Request / 功能建议
+description: Propose a verifiable improvement within the simulation-only boundary / 在仅模拟边界内提出可验证改进
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the user problem and observable outcome. Keep proposals within research, fictional samples, simulation, and review workflows.
+        Do not request real purchase, payment, ticketing, official-data crawling, access-control bypass, profit promises, or winning guarantees.
+
+        请描述用户问题和可观察结果。建议必须限定在研究、虚构样例、模拟和复盘流程内。
+        不得要求真实购买、支付、出票、官方数据抓取、绕过访问控制、收益承诺或中奖保证。
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or need / 问题或需求
+      description: Explain the current limitation / 说明当前限制
+    validations:
+      required: true
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Use case / 使用场景
+      description: Explain who needs the outcome and in which workflow / 说明谁在什么流程中需要该结果
+    validations:
+      required: true
+  - type: textarea
+    id: proposed_outcome
+    attributes:
+      label: Proposed outcome / 期望结果
+      description: Describe the user-visible result without prescribing implementation / 描述用户可见结果，无需规定内部实现
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: Acceptance criteria / 验收标准
+      description: Provide runnable, observable, repeatable conditions / 提供可运行、可观察、可重复的验收条件
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered / 已考虑的替代方案
+      description: Describe existing workarounds / 描述现有绕行方法
+  - type: dropdown
+    id: scope_area
+    attributes:
+      label: Scope area / 所属模块
+      options:
+        - Frontend / 前端
+        - Backend / 后端
+        - OCR
+        - Analysis engine / 分析引擎
+        - Simulated plan / 模拟方案
+        - Result provider / 赛果同步
+        - Review workflow / 复盘流程
+        - LLM integration / 大模型集成
+        - Documentation / 文档
+        - Other / 其他
+    validations:
+      required: true
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional context / 补充信息
+      description: Add only public, authorized references / 仅添加可公开且已获授权的参考信息
+  - type: checkboxes
+    id: scope_confirmation
+    attributes:
+      label: Required scope confirmation / 必须确认范围
+      options:
+        - label: This proposal remains within analysis, research, fictional samples, simulation, or review workflows. / 本建议仍属于分析、研究、虚构样例、模拟或复盘流程。
+          required: true
+        - label: It does not request real purchase, payment, ticketing, proxy purchase, following orders, deposit, or withdrawal. / 本建议不要求真实购买、支付、出票、代购、跟单、充值或提现。
+          required: true
+        - label: It does not request crawling, access-control bypass, caching, mirroring, or republication of official lottery data. / 本建议不要求抓取、绕过访问控制、缓存、镜像或重新发布官方彩票数据。
+          required: true
+        - label: It contains no profit, certainty, recovery-of-loss, accuracy, or winning guarantee. / 本建议不包含利润、确定性、回本、准确率或中奖保证。
+          required: true
+        - label: It contains no secrets, private data, or restricted material. / 本建议不包含秘密信息、私人数据或受限制素材。
+          required: true
+        - label: I agree to follow the Code of Conduct and Contributing guide. / 我同意遵守行为准则和贡献指南。
+          required: true
+    validations:
+      required: true
