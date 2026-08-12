@@ -7,23 +7,26 @@
   "type": "module",
   "scripts": {
     "build:web": "npm run build -w apps/web",
+    "check:community-templates": "node scripts/community-templates-check.mjs",
     "compliance:scan": "node scripts/compliance-scan.js",
     "dev:web": "npm run dev -w apps/web",
     "lint:web": "npm run lint -w apps/web",
     "smoke:deepseek": "node scripts/deepseek-integration-smoke.mjs",
     "smoke:stage8": "node scripts/stage8-smoke.mjs",
     "test:deepseek-smoke": "node scripts/deepseek-integration-smoke.spec.mjs",
+    "test:community-templates": "node --test scripts/community-templates-check.spec.mjs",
     "test:stage8-config": "node scripts/stage8-config.spec.mjs",
     "test:server": "mvn -f apps/server/pom.xml test",
     "test:web": "npm run test -w apps/web",
     "verify:server": "mvn -f apps/server/pom.xml verify",
+    "verify:community-templates": "npm run check:community-templates && npm run test:community-templates",
     "verify:stage2": "npm run compliance:scan && npm run lint:web && npm run test:web && npm run build:web && npm run test:server",
     "verify:stage3": "npm run compliance:scan && npm run lint:web && npm run test:web && npm run build:web && npm run test:server",
     "verify:stage4": "npm run compliance:scan && npm run lint:web && npm run test:web && npm run build:web && npm run test:server",
     "verify:stage5": "npm run compliance:scan && npm run lint:web && npm run test:web && npm run build:web && npm run test:server",
     "verify:stage6": "npm run compliance:scan && npm run lint:web && npm run test:web && npm run build:web && npm run test:server",
     "verify:stage7": "npm run compliance:scan && npm run lint:web && npm run test:web && npm run build:web && npm run test:server",
-    "verify:stage8": "npm run compliance:scan && npm run lint:web && npm run test:web && npm run build:web && npm run verify:server && npm run test:stage8-config && npm run smoke:stage8"
+    "verify:stage8": "npm run verify:community-templates && npm run compliance:scan && npm run lint:web && npm run test:web && npm run build:web && npm run verify:server && npm run test:stage8-config && npm run smoke:stage8"
   },
   "workspaces": [
     "apps/*",
