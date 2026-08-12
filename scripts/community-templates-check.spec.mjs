@@ -1,9 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
+import {
+  COMMUNITY_TEMPLATE_FILES,
+  validateCommunityTemplates,
+  validateIssueForm
+} from './community-templates-check.mjs';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const securityPolicyUrl = 'https://github.com/TomLeo-ai/football-lottery-analysis-lab/security/policy';
@@ -322,4 +328,444 @@ test('Pull Request template matches the approved bilingual review contract', asy
   assert.ok(source.includes('<!-- Only the maintainer or actual reviewer should check these after completing review. These checkboxes do not replace GitHub review or branch protection. / 仅由维护者或实际审阅者在完成审阅后勾选。以下复选框不能替代 GitHub 审阅或分支保护。 -->'));
   assert.equal(normalizeLineEndings(approvedTemplate.replaceAll('\n', '\r\n')), approvedTemplate, 'CRLF content must normalize to the approved contract');
   assert.equal(source, approvedTemplate, 'PR template must match the complete approved contract');
+});
+
+async function withTemporaryRepository(mutator, assertion) {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'community-templates-'));
+  try {
+    for (const relativePath of COMMUNITY_TEMPLATE_FILES) {
+      const destination = path.join(root, relativePath);
+      await mkdir(path.dirname(destination), { recursive: true });
+      await copyFile(path.join(repositoryRoot, relativePath), destination);
+    }
+    await mutator(root);
+    await assertion(root);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+async function mutateYaml(root, relativePath, mutation) {
+  const absolutePath = path.join(root, relativePath);
+  const value = YAML.parse(await readFile(absolutePath, 'utf8'));
+  mutation(value);
+  await writeFile(absolutePath, YAML.stringify(value), 'utf8');
+}
+
+async function mutateText(root, relativePath, mutation) {
+  const absolutePath = path.join(root, relativePath);
+  const source = normalizeLineEndings(await readFile(absolutePath, 'utf8'));
+  await writeFile(absolutePath, mutation(source), 'utf8');
+}
+
+function joinedErrors(result) {
+  return result.errors.map((error) => `${error.file}: ${error.message}`).join('\n');
+}
+
+test('repository community templates pass reusable validation', async () => {
+  const result = await validateCommunityTemplates(repositoryRoot);
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.filesChecked, 5);
+});
+
+test('Issue Forms reject every unapproved top-level key, including assignees', async () => {
+  const issueFormPaths = [
+    '.github/ISSUE_TEMPLATE/bug-report.yml',
+    '.github/ISSUE_TEMPLATE/feature-request.yml',
+    '.github/ISSUE_TEMPLATE/adoption-report.yml'
+  ];
+  await withTemporaryRepository(
+    async (root) => {
+      for (const [index, relativePath] of issueFormPaths.entries()) {
+        await mutateYaml(root, relativePath, (form) => {
+          form.assignees = index === 1 ? ['octocat'] : [];
+          form.unapproved_key = 'not allowed';
+        });
+      }
+    },
+    async (root) => {
+      const result = await validateCommunityTemplates(root);
+      for (const relativePath of issueFormPaths) {
+        const messages = result.errors.filter((error) => error.file === relativePath).map((error) => error.message);
+        assert.ok(messages.some((message) => /unapproved top-level key "assignees"/i.test(message)), `${relativePath} must reject assignees`);
+        assert.ok(messages.some((message) => /unapproved top-level key "unapproved_key"/i.test(message)), `${relativePath} must reject unknown top-level keys`);
+      }
+    }
+  );
+});
+
+test('Markdown policy introduction rejects item and attribute extensions', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/bug-report.yml', (form) => {
+      form.body[0].extra = true;
+      form.body[0].attributes.render = 'markdown';
+    }),
+    async (root) => {
+      const errors = joinedErrors(await validateCommunityTemplates(root));
+      assert.match(errors, /Markdown policy introduction.*unapproved key "extra"/i);
+      assert.match(errors, /Markdown policy introduction attributes.*unapproved key "render"/i);
+    }
+  );
+});
+
+test('required checkbox groups reject unapproved field keys', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/feature-request.yml', (form) => {
+      fieldById(form, 'scope_confirmation').extra = true;
+    }),
+    async (root) => {
+      const errors = joinedErrors(await validateCommunityTemplates(root));
+      assert.match(errors, /scope_confirmation.*unapproved key "extra"/i);
+    }
+  );
+});
+
+test('optional Adoption evidence consent rejects unapproved field keys', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/adoption-report.yml', (form) => {
+      fieldById(form, 'evidence_consent').extra = true;
+    }),
+    async (root) => {
+      const errors = joinedErrors(await validateCommunityTemplates(root));
+      assert.match(errors, /evidence_consent.*unapproved key "extra"/i);
+    }
+  );
+});
+
+test('Issue chooser rejects unapproved top-level keys', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/config.yml', (config) => {
+      config.extra = true;
+    }),
+    async (root) => {
+      const errors = joinedErrors(await validateCommunityTemplates(root));
+      assert.match(errors, /chooser.*unapproved top-level key "extra"/i);
+    }
+  );
+});
+
+test('validateIssueForm ignores external rule overrides and reports unknown files structurally', async () => {
+  const file = '.github/ISSUE_TEMPLATE/bug-report.yml';
+  const source = await readRepositoryText(file);
+  const form = YAML.parse(source);
+  const unknownFiles = [
+    '.github/ISSUE_TEMPLATE/unknown.yml',
+    '__proto__',
+    'constructor',
+    'toString',
+    'hasOwnProperty'
+  ];
+
+  assert.equal(validateIssueForm.length, 3);
+  assert.deepEqual(validateIssueForm(form, source, file, {}), []);
+  assert.deepEqual(validateIssueForm(form, source, file, 'bad'), []);
+  for (const unknownFile of unknownFiles) {
+    assert.deepEqual(validateIssueForm(form, source, unknownFile, {}), [{
+      file: unknownFile,
+      message: 'no approved Issue Form rules are configured'
+    }]);
+  }
+});
+
+test('a missing required checkbox group reports one focused error', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/feature-request.yml', (form) => {
+      form.body = form.body.filter((field) => field.id !== 'scope_confirmation');
+    }),
+    async (root) => {
+      const result = await validateCommunityTemplates(root);
+      const messages = result.errors.filter((error) => error.file.endsWith('feature-request.yml') && /scope_confirmation/i.test(error.message));
+      assert.equal(messages.length, 1);
+      assert.match(messages[0].message, /missing required checkbox group/i);
+    }
+  );
+});
+
+test('field contract discrepancies do not add a synonymous complete-field error', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/bug-report.yml', (form) => {
+      const logs = fieldById(form, 'logs');
+      logs.type = 'input';
+      logs.validations = { required: true };
+      delete logs.attributes.render;
+    }),
+    async (root) => {
+      const messages = (await validateCommunityTemplates(root)).errors
+        .filter((error) => error.file.endsWith('bug-report.yml') && /field "logs"/i.test(error.message))
+        .map((error) => error.message);
+      assert.ok(messages.some((message) => /must have type "textarea"/i.test(message)));
+      assert.ok(messages.some((message) => /must remain optional/i.test(message)));
+      assert.ok(messages.some((message) => /approved attributes contract/i.test(message)));
+      assert.equal(messages.some((message) => /complete approved field contract/i.test(message)), false);
+    }
+  );
+});
+
+test('invalid YAML is rejected', async () => {
+  await withTemporaryRepository(
+    (root) => writeFile(path.join(root, '.github/ISSUE_TEMPLATE/bug-report.yml'), 'body: [', 'utf8'),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /invalid YAML/i)
+  );
+});
+
+test('duplicate field IDs are rejected', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/bug-report.yml', (form) => {
+      form.body.push({ ...form.body.find((field) => field.id === 'version') });
+    }),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /duplicate field id "version"/i)
+  );
+});
+
+test('missing required fields are rejected', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/bug-report.yml', (form) => {
+      form.body = form.body.filter((field) => field.id !== 'actual');
+    }),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /missing required field "actual"/i)
+  );
+});
+
+test('missing compliance acknowledgements are rejected', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/feature-request.yml', (form) => {
+      form.body = form.body.filter((field) => field.id !== 'scope_confirmation');
+    }),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /scope_confirmation.*required checkbox group/i)
+  );
+});
+
+test('blank Issues cannot be enabled', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/config.yml', (config) => {
+      config.blank_issues_enabled = true;
+    }),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /blank_issues_enabled must be false/i)
+  );
+});
+
+test('Adoption evidence consent cannot become required', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/adoption-report.yml', (form) => {
+      const consent = form.body.find((field) => field.id === 'evidence_consent');
+      consent.validations = { required: true };
+      consent.attributes.options[0].required = true;
+    }),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /evidence_consent.*must remain optional/i)
+  );
+});
+
+test('Adoption evidence consent cannot be removed', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/adoption-report.yml', (form) => {
+      form.body = form.body.filter((field) => field.id !== 'evidence_consent');
+    }),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /missing optional evidence consent field/i)
+  );
+});
+
+test('PR verification section cannot be removed', async () => {
+  await withTemporaryRepository(
+    (root) => mutateText(root, '.github/pull_request_template.md', (source) => source.replace('## Verification / 验证证据', '## Checks')),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /missing PR heading.*Verification/i)
+  );
+});
+
+test('PR AI disclosure section cannot be removed', async () => {
+  await withTemporaryRepository(
+    (root) => mutateText(root, '.github/pull_request_template.md', (source) => source.replace('## AI Assistance Disclosure / AI 辅助披露', '## Tooling')),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /missing PR heading.*AI Assistance/i)
+  );
+});
+
+test('fields that solicit secrets or real betting records are rejected together', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/bug-report.yml', (form) => {
+      form.body.push({ type: 'input', id: 'api_key', attributes: { label: 'Credential' } });
+      form.body.push({ type: 'textarea', id: 'betting_record', attributes: { label: 'Record' } });
+    }),
+    async (root) => {
+      const errors = joinedErrors(await validateCommunityTemplates(root));
+      assert.match(errors, /dangerous field id "api_key"/i);
+      assert.match(errors, /dangerous field id "betting_record"/i);
+    }
+  );
+});
+
+test('optional fields cannot silently become required', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/feature-request.yml', (form) => {
+      form.body.find((field) => field.id === 'alternatives').validations = { required: true };
+    }),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /field "alternatives" must remain optional/i)
+  );
+});
+
+test('approved field attributes cannot lose required metadata', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/bug-report.yml', (form) => {
+      delete form.body.find((field) => field.id === 'logs').attributes.render;
+    }),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /field "logs".*approved attributes contract/i)
+  );
+});
+
+test('bilingual but policy-reversing field descriptions are rejected', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/feature-request.yml', (form) => {
+      const field = form.body.find((item) => item.id === 'additional_context');
+      field.attributes.description = field.attributes.description
+        .replace('Add only public, authorized references', ['Supports real', 'payment and winning guarantees'].join(' '))
+        .replace('仅添加可公开且已获授权的参考信息', ['支持真实', '\u652f\u4ed8\u548c\u4e2d\u5956\u4fdd\u8bc1'].join(''));
+    }),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /field "additional_context".*approved attributes contract/i)
+  );
+});
+
+test('required checkbox options cannot silently become optional', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/bug-report.yml', (form) => {
+      form.body.find((field) => field.id === 'acknowledgements').attributes.options[1].required = false;
+    }),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /acknowledgements.*every option required/i)
+  );
+});
+
+test('approved safety sentences cannot be truncated or semantically reversed', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/feature-request.yml', (form) => {
+      const confirmation = form.body.find((field) => field.id === 'scope_confirmation');
+      confirmation.attributes.options[1].label = confirmation.attributes.options[1].label
+        .replace('does not request', 'supports')
+        .replace('不要求', '支持');
+    }),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /scope_confirmation.*approved policy options/i)
+  );
+});
+
+test('unsupported types and malformed body items are reported without crashing', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/bug-report.yml', (form) => {
+      form.body.push(null, 'not-a-mapping', { type: 'upload', id: 'attachment', attributes: { label: 'Attachment' } });
+    }),
+    async (root) => {
+      const errors = joinedErrors(await validateCommunityTemplates(root));
+      assert.match(errors, /body item .*must be a mapping/i);
+      assert.match(errors, /unsupported field type "upload"/i);
+    }
+  );
+});
+
+test('dropdown options must remain arrays with the approved taxonomy', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/feature-request.yml', (form) => {
+      form.body.find((field) => field.id === 'scope_area').attributes.options = 'Frontend / 前端';
+    }),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /scope_area.*options must be an array/i)
+  );
+});
+
+test('optional consent options with an invalid shape are rejected without crashing', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/adoption-report.yml', (form) => {
+      form.body.find((field) => field.id === 'evidence_consent').attributes.options = null;
+    }),
+    async (root) => {
+      const result = await validateCommunityTemplates(root);
+      const errors = joinedErrors(result);
+      assert.match(errors, /evidence_consent.*options must be an array/i);
+      assert.doesNotMatch(errors, /evidence_consent.*must remain optional/i);
+      assert.equal(result.errors.filter((error) => error.file.endsWith('adoption-report.yml') && /evidence_consent/i.test(error.message)).length, 2);
+    }
+  );
+});
+
+test('non-mapping roots and non-array bodies are aggregated without crashes', async () => {
+  await withTemporaryRepository(
+    async (root) => {
+      await writeFile(path.join(root, '.github/ISSUE_TEMPLATE/bug-report.yml'), '[]\n', 'utf8');
+      await writeFile(path.join(root, '.github/ISSUE_TEMPLATE/feature-request.yml'), 'null\n', 'utf8');
+      await writeFile(path.join(root, '.github/ISSUE_TEMPLATE/adoption-report.yml'), 'name: Adoption\nbody: null\n', 'utf8');
+      await writeFile(path.join(root, '.github/ISSUE_TEMPLATE/config.yml'), 'security\n', 'utf8');
+    },
+    async (root) => {
+      const result = await validateCommunityTemplates(root);
+      const errors = joinedErrors(result);
+      assert.match(errors, /bug-report\.yml: form root must be a mapping/i);
+      assert.match(errors, /feature-request\.yml: form root must be a mapping/i);
+      assert.match(errors, /adoption-report\.yml: top-level "body" must be an array/i);
+      assert.match(errors, /config\.yml: chooser root must be a mapping/i);
+      assert.equal(result.filesChecked, 5);
+    }
+  );
+});
+
+test('security routing must be the single approved contact link', async () => {
+  await withTemporaryRepository(
+    (root) => mutateYaml(root, '.github/ISSUE_TEMPLATE/config.yml', (config) => {
+      config.contact_links[0].url = 'https://example.com/security';
+      config.contact_links.push({ name: 'Support', url: securityPolicyUrl, about: 'Public support' });
+    }),
+    async (root) => {
+      const errors = joinedErrors(await validateCommunityTemplates(root));
+      assert.match(errors, /exactly one approved security contact link/i);
+      assert.match(errors, /security contact link must match the approved name, URL, and about text/i);
+    }
+  );
+});
+
+test('PR headings cannot be reordered', async () => {
+  await withTemporaryRepository(
+    (root) => mutateText(root, '.github/pull_request_template.md', (source) => {
+      const verification = source.indexOf('## Verification / 验证证据');
+      const compliance = source.indexOf('## Compliance and Data Safety / 合规与数据安全');
+      const ai = source.indexOf('## AI Assistance Disclosure / AI 辅助披露');
+      return source.slice(0, verification) + source.slice(compliance, ai) + source.slice(verification, compliance) + source.slice(ai);
+    }),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /PR headings must appear exactly once in the approved order/i)
+  );
+});
+
+test('PR governance lines cannot be moved to the wrong section', async () => {
+  const governanceLine = 'Maintainer-authored PRs are not external contribution or adoption evidence. / 维护者提交的 PR 不属于外部贡献或采用证据。';
+  await withTemporaryRepository(
+    (root) => mutateText(root, '.github/pull_request_template.md', (source) => source.replace(`${governanceLine}\n\n## Release Impact`, `## Release Impact`).replace('Select one. / 请选择一项。', `Select one. / 请选择一项。\n\n${governanceLine}`)),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /AI Assistance Disclosure.*missing approved governance line/i)
+  );
+});
+
+test('PR Summary guidance cannot be deleted', async () => {
+  const guidance = '<!-- Describe the problem and user-observable outcome. / 描述问题和用户可观察到的结果。 -->';
+  await withTemporaryRepository(
+    (root) => mutateText(root, '.github/pull_request_template.md', (source) => source.replace(`${guidance}\n`, '')),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /complete approved normalized source/i)
+  );
+});
+
+test('PR sections cannot add unapproved contradictory guidance', async () => {
+  await withTemporaryRepository(
+    (root) => mutateText(root, '.github/pull_request_template.md', (source) => source.replace(
+      'Maintainer-authored PRs are not external contribution or adoption evidence.',
+      'AI output replaces human approval. / AI 输出可以替代人工批准。\n\nMaintainer-authored PRs are not external contribution or adoption evidence.'
+    )),
+    async (root) => assert.match(joinedErrors(await validateCommunityTemplates(root)), /complete approved normalized source/i)
+  );
+});
+
+test('read and parse failures do not stop validation of remaining files', async () => {
+  await withTemporaryRepository(
+    async (root) => {
+      await writeFile(path.join(root, '.github/ISSUE_TEMPLATE/bug-report.yml'), 'body: [', 'utf8');
+      await unlink(path.join(root, '.github/pull_request_template.md'));
+      await mutateYaml(root, '.github/ISSUE_TEMPLATE/config.yml', (config) => {
+        config.blank_issues_enabled = true;
+      });
+    },
+    async (root) => {
+      const errors = joinedErrors(await validateCommunityTemplates(root));
+      assert.match(errors, /bug-report\.yml: invalid YAML/i);
+      assert.match(errors, /pull_request_template\.md: cannot read required file/i);
+      assert.match(errors, /blank_issues_enabled must be false/i);
+    }
+  );
 });
