@@ -1,0 +1,104 @@
+name: Adoption Report / 使用与采用反馈
+description: Share real use and optionally permit a verified public evidence link / 分享真实使用情况，并可选择授权公开证据引用
+title: "[Adoption]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        An Adoption Issue is feedback, not automatic proof. Maintainers verify consent, relationship, version, use case, and public references before updating the Public Evidence Ledger.
+        Do not submit API keys, tokens, cookies, private data, real user screenshots, real betting records, personal financial information, or guaranteed outcomes.
+
+        Adoption Issue 是使用反馈，不会自动成为采用证明。维护者必须核验授权、关系、版本、场景和公开参考，才能更新公开证据账本。
+        请勿提交 API Key、Token、Cookie、私人数据、真实用户截图、真实投注记录、个人财务信息或结果保证。
+  - type: input
+    id: version
+    attributes:
+      label: Version used / 使用版本
+      description: Provide a Release, commit SHA, or branch / 请填写 Release、提交 SHA 或分支
+    validations:
+      required: true
+  - type: dropdown
+    id: relationship
+    attributes:
+      label: Relationship to the project / 与项目的关系
+      options:
+        - Independent user / 独立用户
+        - Organization user / 组织使用者
+        - Integrator / 集成者
+        - Contributor / 贡献者
+        - Maintainer / 维护者
+        - Other / 其他
+    validations:
+      required: true
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment / 使用环境
+      options:
+        - Local use / 本地使用
+        - Test environment / 测试环境
+        - Learning experiment / 学习实验
+        - Internal evaluation / 内部评估
+        - Other / 其他
+    validations:
+      required: true
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Use case / 使用场景
+      description: Describe the real purpose without private business or user data / 描述真实使用目的，但不要包含私人业务或用户数据
+    validations:
+      required: true
+  - type: textarea
+    id: experience
+    attributes:
+      label: Experience and feedback / 使用体验与反馈
+      description: Explain what was useful and what needs improvement / 说明哪些部分有用、哪些部分需要改进
+    validations:
+      required: true
+  - type: textarea
+    id: limitations
+    attributes:
+      label: Limitations encountered / 遇到的限制
+      description: Describe obstacles or shortcomings / 描述遇到的阻碍或不足
+  - type: input
+    id: public_reference
+    attributes:
+      label: Optional public reference / 可选公开参考
+      description: Public repository, article, demo, or integration URL you may publish / 你有权公开的仓库、文章、演示或集成链接
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional context / 补充信息
+      description: Add only information that is safe to publish / 仅添加适合公开的信息
+  - type: checkboxes
+    id: privacy_confirmation
+    attributes:
+      label: Required privacy and evidence confirmation / 必须确认隐私与证据边界
+      options:
+        - label: The content contains no API key, token, cookie, private data, or real user screenshot. / 内容不包含 API Key、Token、Cookie、私人数据或真实用户截图。
+          required: true
+        - label: The content contains no real betting record, personal financial information, or gambling outcome. / 内容不包含真实投注记录、个人财务信息或博彩结果。
+          required: true
+        - label: The report makes no accuracy, profit, winning, or loss-recovery guarantee. / 本报告不声称项目能够保证准确率、利润、中奖或损失追回。
+          required: true
+        - label: I have permission to publish any supplied public reference. / 如果填写公开参考链接，我确认有权公开该链接。
+          required: true
+    validations:
+      required: true
+  - type: checkboxes
+    id: evidence_consent
+    attributes:
+      label: Optional Public Evidence Ledger consent / 可选公开证据账本授权
+      description: Leaving this unchecked does not block submission. Consent permits a link only after maintainer verification and can be withdrawn. / 不勾选也可正常提交。授权只允许维护者核验后引用，且可以撤回。
+      options:
+        - label: I authorize maintainers to link this public Issue from the repository's Public Evidence Ledger after verification. / 在维护者完成核验后，我同意维护者从仓库的公开采用证据账本中引用此公开 Issue。
+  - type: checkboxes
+    id: conduct_confirmation
+    attributes:
+      label: Code of Conduct / 行为准则
+      options:
+        - label: I agree to follow the Code of Conduct. / 我同意遵守行为准则。
+          required: true
+    validations:
+      required: true

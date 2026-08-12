@@ -1,0 +1,104 @@
+name: Bug Report / 缺陷报告
+description: Report a reproducible problem with sanitized evidence / 报告可复现的问题并提供已脱敏证据
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search existing Issues first. Security vulnerabilities must follow the [Security Policy](https://github.com/TomLeo-ai/football-lottery-analysis-lab/security/policy) and must not be disclosed publicly.
+        Do not submit API keys, tokens, cookies, private data, real betting records, official lottery screenshots, logos, copied assets, or official datasets.
+
+        请先搜索已有 Issues。安全漏洞必须按照[安全策略](https://github.com/TomLeo-ai/football-lottery-analysis-lab/security/policy)报告，不得公开披露。
+        请勿提交 API Key、Token、Cookie、私人数据、真实投注记录、官方彩票截图、Logo、复制素材或官方数据集。
+  - type: input
+    id: version
+    attributes:
+      label: Project version / 项目版本
+      description: Provide a Release, commit SHA, or branch / 请填写 Release、提交 SHA 或分支
+      placeholder: "Example / 示例: v0.1.1 or d4d4097"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area / 影响模块
+      options:
+        - Frontend / 前端
+        - Backend / 后端
+        - OCR
+        - Analysis engine / 分析引擎
+        - Simulated plan / 模拟方案
+        - Result provider / 赛果同步
+        - Review workflow / 复盘流程
+        - LLM integration / 大模型集成
+        - Documentation / 文档
+        - Other / 其他
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment / 运行环境
+      description: Include OS, browser, Node, Java, and relevant database configuration without secrets / 请填写操作系统、浏览器、Node、Java 和必要的数据库配置，但不要包含秘密信息
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps / 复现步骤
+      description: Provide the smallest repeatable sequence / 请提供最小且可重复的操作步骤
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior / 预期行为
+      description: Describe the observable correct result / 描述可观察到的正确结果
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior / 实际行为
+      description: Describe what actually happened / 描述实际发生的情况
+    validations:
+      required: true
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: Frequency / 出现频率
+      options:
+        - Every time / 每次出现
+        - Intermittent / 偶发
+        - First run only / 仅首次运行
+        - Unknown / 尚不确定
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs / 已脱敏日志
+      description: Remove credentials, cookies, private paths, and user data before pasting / 粘贴前请删除凭据、Cookie、私人路径和用户数据
+      render: shell
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional context / 补充信息
+      description: Add only information that is safe to publish / 仅添加适合公开的信息
+  - type: checkboxes
+    id: acknowledgements
+    attributes:
+      label: Required acknowledgements / 必须确认
+      options:
+        - label: I searched existing Issues and did not find the same problem. / 我已搜索现有 Issues，未发现相同问题。
+          required: true
+        - label: I removed API keys, tokens, cookies, private information, and real user data. / 我已删除 API Key、Token、Cookie、私人信息和真实用户数据。
+          required: true
+        - label: I did not attach official lottery screenshots, logos, copied assets, or official datasets. / 我未上传官方彩票截图、Logo、复制素材或官方数据集。
+          required: true
+        - label: This report contains no real purchase, payment, ticketing, betting record, profit promise, or winning guarantee. / 本报告不包含真实购买、支付、出票、投注记录、收益承诺或中奖保证。
+          required: true
+        - label: I agree to follow the Code of Conduct and Contributing guide. / 我同意遵守行为准则和贡献指南。
+          required: true
+    validations:
+      required: true
