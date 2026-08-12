@@ -14,11 +14,6 @@ export const COMMUNITY_TEMPLATE_FILES = [
 ];
 
 const SECURITY_URL = 'https://github.com/TomLeo-ai/football-lottery-analysis-lab/security/policy';
-const SECURITY_CONTACT = {
-  name: 'Security report / 安全漏洞报告',
-  url: SECURITY_URL,
-  about: 'Report vulnerabilities privately through the Security Policy / 请按照安全策略私下报告漏洞'
-};
 const ALLOWED_TYPES = new Set(['markdown', 'input', 'textarea', 'dropdown', 'checkboxes']);
 const DANGEROUS_ID = /(api[_-]?key|token|password|cookie|betting[_-]?record)/i;
 const MODULE_OPTIONS = [
@@ -691,11 +686,8 @@ export function validateChooserConfig(config, file = '.github/ISSUE_TEMPLATE/con
   if (config.blank_issues_enabled !== false) {
     errors.push(problem(file, 'blank_issues_enabled must be false'));
   }
-  if (!Array.isArray(config.contact_links) || config.contact_links.length !== 1) {
-    errors.push(problem(file, 'chooser must contain exactly one approved security contact link'));
-  }
-  if (!isDeepStrictEqual(config.contact_links?.[0], SECURITY_CONTACT)) {
-    errors.push(problem(file, 'security contact link must match the approved name, URL, and about text'));
+  if (Object.hasOwn(config, 'contact_links')) {
+    errors.push(problem(file, "contact_links must be omitted because SECURITY.md provides GitHub's native private security route"));
   }
   return errors;
 }
@@ -809,7 +801,7 @@ export async function runCli(root = fileURLToPath(new URL('..', import.meta.url)
     return 1;
   }
   console.log(`Community template validation passed. Checked ${result.filesChecked} files.`);
-  console.log('Policy gates: blank Issues disabled; security routing present; Adoption evidence consent optional.');
+  console.log('Policy gates: blank Issues disabled; native SECURITY.md routing preserved; Adoption evidence consent optional.');
   return 0;
 }
 
