@@ -86,9 +86,9 @@ Inject `createImageBitmap`, Object URL, Canvas, and 2D context factories. Assert
 
 - EXIF orientation normalization occurs exactly once at initial decode;
 - rotations are only 90-degree steps;
-- one crop and many opaque redactions are applied before OCR;
-- longest edge is at most 2400 and a smaller image is not enlarged;
-- returned transform metadata matches the processed Canvas;
+- one crop and many opaque redactions are applied before OCR; before writing a `ProcessedImageTransform`, `ImageWorkspaceController` normalizes the interactive crop to the integer `x`/`y`/`width`/`height` actually used by Canvas drawing, and metadata stores that integer crop rather than a separate fractional intent;
+- longest-edge sizing uses `scaleToLongestEdge(rotatedOrCroppedIntegerSize, 2400)`: the returned positive-integer `processedSize` is the actual Canvas size, a smaller image is not enlarged, the longest axis is exactly `2400` when reduced, and the other axis uses `Math.max(1, Math.round(other * 2400 / longest))`;
+- returned transform metadata matches the processed Canvas dimensions exactly, and its bounding-box mapping uses the actual `scaleX`/`scaleY` implied by those dimensions, which may differ slightly after short-axis integer rounding;
 - selecting another file disposes the old bitmap/URL/canvas;
 - `dispose()` is idempotent and calls `URL.revokeObjectURL`, `ImageBitmap.close`, and clears Canvas dimensions.
 
@@ -126,6 +126,8 @@ export class ImageWorkspaceController {
 ```
 
 The source `File` and bitmap are private; no getter may expose them to Pinia or API code.
+
+`setCrop` may receive interaction coordinates, but `renderForOcr()` must normalize them to the fully bounded integer Canvas crop before constructing `ProcessedImageTransform`; a null crop continues to mean the complete rotated integer image. The stored transform crop is the exact integer rectangle supplied to Canvas drawing, never a fractional UI-intent rectangle.
 
 - [ ] **Step 4: Run GREEN and leak assertions**
 

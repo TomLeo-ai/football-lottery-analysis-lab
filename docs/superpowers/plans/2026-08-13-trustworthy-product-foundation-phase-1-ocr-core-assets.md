@@ -112,17 +112,52 @@ git commit -m "feat: establish OCR core contracts"
 
 - [ ] **Step 1: Write table-driven RED tests**
 
-Cover `0/90/180/270` rotation, a single crop, multiple redaction rectangles, longest-edge scaling, and invalid/non-finite boxes. The central assertion must use explicit source and processed dimensions:
+Lock this coordinate contract in the tests before implementing it:
+
+- `rotation` is a positive clockwise rotation. A bounding box passed to `transformBoundingBox` is in EXIF-normalized, pre-user-rotation `normalizedSize` coordinates; its returned box is in final OCR `processedSize` coordinates.
+- `sourceSize` is retained only as the original-pixel audit size. Without EXIF coordinate-mapping metadata, it is not an authority for, and must not participate in, bounding-box math. `normalizedSize` is the authoritative input boundary.
+- `transformBoundingBox` must first validate `schemaVersion` at runtime as exactly `'IMAGE_TRANSFORM_V1'`; a transform with `'OTHER_VERSION'` is a RED negative case and must throw `OcrCoreValidationError`.
+- Validate the input box first: all values must be finite and non-negative, width and height must be positive, and it must be fully inside `normalizedSize`. Rotate it clockwise into the full rotated image: `0` preserves it; `90` maps `{ x, y, width, height }` to `{ x: normalizedSize.height - y - height, y: x, width: height, height: width }`; `180` maps it to `{ x: normalizedSize.width - x - width, y: normalizedSize.height - y - height, width, height }`; `270` maps it to `{ x: y, y: normalizedSize.width - x - width, width: height, height: width }`.
+- A non-null `crop` is a special integer-Canvas use of `PixelRect`: all of its `x`, `y`, `width`, and `height` values must be finite integers; `x`/`y` must be non-negative; `width`/`height` must be positive; and it must be fully inside the rotated full-image bounds and fully contain the rotated input box. Subtract its origin after rotation; do not silently clip. A null crop means the full rotated image with origin `{ x: 0, y: 0 }` and the rotated integer image size as its effective extent.
+- `sourceSize`, `normalizedSize`, and `processedSize` must each have finite positive integer dimensions. Generic `PixelRect` values used for bounding boxes and redactions may have finite fractional positions and dimensions, but positions must be non-negative and rectangle widths/heights must be positive. Rotation must be exactly one of `0 | 90 | 180 | 270`.
+- `processedSize` is the actual positive-integer Canvas size, not an idealized uniform-scale size. Let the effective extent be the crop or full rotated image, let its longest axis be `L`, and let `P` be the declared `processedSize` dimension on that same axis. It is valid only when `0 < P <= L`, both actual axis ratios are at most `1`, and it matches this exact integer-Canvas rule: if `P === L`, `processedSize` must equal the integral effective extent unchanged; otherwise `P < L`, the longest-axis processed dimension is exactly `P`, and the other processed dimension is exactly `Math.max(1, Math.round(effectiveOther * P / L))`. For a square extent both processed dimensions are `P`. This makes `P` the deterministic implied `maxEdge`, ensures at least one processed axis is the scaled longest edge, permits the short axis to round, and rejects arbitrary aspect-ratio changes or enlargement. Transform crop-local coordinates with the two actual ratios `processedSize.width / effective.width` and `processedSize.height / effective.height`; do not impose equality between them and do not add further rounding.
+- Each redaction is in full rotated-image coordinates, has finite positive dimensions, and is fully inside the crop (or full rotated image). Redactions affect only pixel masking; they must not change bounding-box coordinates or mutate the caller-provided array or any rect object it contains.
+- OCR engines already return their own boxes in `processedSize` coordinates. A separate processed-box boundary validator must require a finite, non-negative, positive-size box fully inside `processedSize`, otherwise throw `OcrCoreValidationError`; it must never clip.
+
+Cover `0/90/180/270`, both crop and null-crop paths, multiple redaction rectangles, longest-edge scaling, and invalid boxes. The invalid-metadata table must cover `sourceSize`, `normalizedSize`, `crop`, `redactions`, and `processedSize` with `NaN`, `Infinity`, zero, and negative values; reject fractional dimensions for every `PixelSize` and reject fractional `crop.x`, `crop.y`, `crop.width`, and `crop.height`. In contrast, preserve legal finite fractional coordinates/dimensions for bounding boxes and redactions when their positions are non-negative and widths/heights positive. Also cover an invalid rotation, including `schemaVersion: 'OTHER_VERSION'`; `maxEdge` values that are `NaN`, `Infinity`, zero, negative, or fractional; input boxes outside `normalizedSize`; boxes that cross a crop boundary; processed boxes outside `processedSize`; and `processedSize` values that violate the exact deterministic integer-Canvas rule above. Every invalid case must throw `OcrCoreValidationError`.
+
+Deep-freeze a multi-rect redaction array in one table row and assert it remains deep-equal before and after both successful transformation and rejected validation. The central assertion must use the complete transform metadata:
 
 ```ts
 expect(transformBoundingBox(
   { x: 10, y: 20, width: 30, height: 40 },
-  { sourceWidth: 200, sourceHeight: 100, rotation: 90,
-    crop: { x: 20, y: 10, width: 60, height: 120 }, scale: 0.5 },
-)).toEqual({ x: 20, y: 85, width: 20, height: 15 })
+  {
+    schemaVersion: 'IMAGE_TRANSFORM_V1',
+    sourceSize: { width: 100, height: 200 },
+    normalizedSize: { width: 200, height: 100 },
+    rotation: 90,
+    crop: { x: 20, y: 10, width: 60, height: 120 },
+    redactions: [],
+    processedSize: { width: 30, height: 60 },
+  },
+)).toEqual({ x: 10, y: 0, width: 20, height: 15 })
 ```
 
-Also assert that a box outside the declared processed image throws `OcrCoreValidationError` rather than being clipped.
+Mathematical check: clockwise rotation produces `{ x: 40, y: 10, width: 40, height: 30 }`; crop-local coordinates are `{ x: 20, y: 0, width: 40, height: 30 }`; `processedSize` gives a uniform `0.5` scale; the final box is `{ x: 10, y: 0, width: 20, height: 15 }`.
+
+Add a paired RED assertion that changes only `sourceSize` (for example, back to `{ width: 200, height: 100 }`) and proves the `transformBoundingBox` output remains exactly the same.
+
+Add the exact helper fixture below and assert that `transformBoundingBox` uses the resulting actual per-axis ratios rather than an idealized uniform scale:
+
+```ts
+expect(scaleToLongestEdge({ width: 1000, height: 333 }, 240)).toEqual({
+  processedSize: { width: 240, height: 80 },
+  scaleX: 0.24,
+  scaleY: 80 / 333,
+})
+```
+
+Also assert that the separate validator rejects a box outside the declared processed image with `OcrCoreValidationError` rather than clipping it.
 
 - [ ] **Step 2: Run RED**
 
@@ -151,7 +186,28 @@ export interface ProcessedImageTransform {
 }
 ```
 
-Keep coordinates in normalized-orientation pixel space and validate finite non-negative values before every transform.
+Implement only pure TypeScript geometry; do not use DOM, Canvas, or Web APIs. Keep the public `PixelSize`, `PixelRect`, `Rotation`, and `ProcessedImageTransform` interface above unchanged and export it from `index.ts`. Define and export `OcrCoreValidationError` and these exact public APIs:
+
+```ts
+export function transformBoundingBox(
+  box: PixelRect,
+  transform: ProcessedImageTransform,
+): PixelRect
+
+export function validateProcessedBoundingBox(
+  box: PixelRect,
+  processedSize: PixelSize,
+): void
+
+export function scaleToLongestEdge(
+  size: PixelSize,
+  maxEdge: number,
+): { processedSize: PixelSize; scaleX: number; scaleY: number }
+```
+
+`scaleToLongestEdge` accepts only finite positive-integer `size` dimensions and a finite positive-integer `maxEdge`; all invalid inputs throw `OcrCoreValidationError`. If `max(size.width, size.height) <= maxEdge`, return the unchanged integer `processedSize` and `scaleX: 1`, `scaleY: 1`. Otherwise set the longest processed axis exactly to `maxEdge`, calculate the other actual Canvas axis as `Math.max(1, Math.round(originalOther * maxEdge / originalLongest))`, and calculate `scaleX` and `scaleY` from the returned integer dimensions divided by the respective original dimensions. The two scales can differ slightly because the short axis is rounded.
+
+`transformBoundingBox` must use the Step 1 pipeline exactly: first validate the runtime `schemaVersion`, then validate in `normalizedSize`, rotate clockwise, require integer crop/full containment and translate to crop-local coordinates, then validate declared `processedSize` using the deterministic implied-`maxEdge` rule from Step 1. It must calculate and apply `scaleX = processedSize.width / effective.width` and `scaleY = processedSize.height / effective.height` separately, return the raw scaled coordinates, and never use `sourceSize` for coordinates or substitute an idealized uniform scale. `validateProcessedBoundingBox` must validate only processed-space bounds and never clip. Validate every transform metadata value, including `sourceSize`, even though it does not affect the math; validate all redactions against the rotated crop/full-image boundary without modifying the input array or contained rects.
 
 - [ ] **Step 4: Run GREEN**
 
