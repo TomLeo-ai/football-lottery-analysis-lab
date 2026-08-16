@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "OCR_FIXTURE_V1",
+  "rights": "PROJECT_GENERATED_FICTIONAL_SAMPLE",
+  "containsThirdPartyMarks": false,
+  "stableTokens": ["DEMO DATA", "演示联赛", "Blue Harbor", "红枫城"],
+  "rawOnlySentinel": "OCR_RAW_ONLY_SENTINEL_V2_9F3A",
+  "sourcePath": "assets/ocr-samples/fictional-golden.html",
+  "generatorPath": "scripts/generate-fictional-ocr-sample.mjs",
+  "targetPath": "apps/web/public/ocr-samples/fictional-golden.png",
+  "sourceSha256": "479a8251ca11ddbf005e5be791821b9643a57de5d18aad462a9bf3d8bea2b84d",
+  "generatorSha256": "cd74f1b585f2d874f7f58bda3b8e2725c6e87f84fd8135153290ac198dc8bc35",
+  "width": 1440,
+  "height": 1000,
+  "bytes": 99426,
+  "sha256": "2832651bc92249405f1a3be71f0264ccdddf78ba19619ae4b6a4f82700957078"
+}

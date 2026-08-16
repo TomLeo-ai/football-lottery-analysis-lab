@@ -15,6 +15,7 @@
     "smoke:stage8": "node scripts/stage8-smoke.mjs",
     "test:deepseek-smoke": "node scripts/deepseek-integration-smoke.spec.mjs",
     "test:community-templates": "node --test scripts/community-templates-check.spec.mjs",
+    "test:ocr-fixtures": "node --test scripts/fictional-ocr-sample.spec.mjs",
     "test:stage8-config": "node scripts/stage8-config.spec.mjs",
     "test:server": "mvn -f apps/server/pom.xml test",
     "test:web": "npm run test -w apps/web",
