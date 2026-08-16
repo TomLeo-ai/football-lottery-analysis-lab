@@ -162,6 +162,18 @@ function parseTransform(value: unknown): ParsedTransform {
   return { sourceSize, normalizedSize, rotation, crop, redactions, processedSize }
 }
 
+function validateParsedTransform(parsedTransform: ParsedTransform): void {
+  const fullRotatedSize = rotatedSize(parsedTransform.normalizedSize, parsedTransform.rotation)
+  const fullRotatedBounds: PixelRect = { x: 0, y: 0, ...fullRotatedSize }
+  if (parsedTransform.crop !== null) assertContainedInRect(parsedTransform.crop, fullRotatedBounds, 'crop')
+  const effectiveBounds = parsedTransform.crop ?? fullRotatedBounds
+  for (const redaction of parsedTransform.redactions) {
+    assertContainedInRect(redaction, fullRotatedBounds, 'redaction')
+    assertContainedInRect(redaction, effectiveBounds, 'redaction')
+  }
+  validateProcessedSize({ width: effectiveBounds.width, height: effectiveBounds.height }, parsedTransform.processedSize)
+}
+
 function assertContainedInSize(rect: PixelRect, size: PixelSize, label: string): void {
   const right = rect.x + rect.width
   const bottom = rect.y + rect.height
@@ -287,6 +299,14 @@ export function validateProcessedBoundingBox(box: PixelRect, processedSize: Pixe
   }
 }
 
+export function validateProcessedImageTransform(transform: ProcessedImageTransform): void {
+  try {
+    validateParsedTransform(parseTransform(transform))
+  } catch (error) {
+    return throwValidationError(error)
+  }
+}
+
 export function transformBoundingBox(box: PixelRect, transform: ProcessedImageTransform): PixelRect {
   try {
     const parsedTransform = parseTransform(transform)
@@ -294,12 +314,8 @@ export function transformBoundingBox(box: PixelRect, transform: ProcessedImageTr
     assertContainedInSize(parsedBox, parsedTransform.normalizedSize, 'bounding box')
     const fullRotatedSize = rotatedSize(parsedTransform.normalizedSize, parsedTransform.rotation)
     const fullRotatedBounds: PixelRect = { x: 0, y: 0, ...fullRotatedSize }
-    if (parsedTransform.crop !== null) assertContainedInRect(parsedTransform.crop, fullRotatedBounds, 'crop')
     const effectiveBounds = parsedTransform.crop ?? fullRotatedBounds
-    for (const redaction of parsedTransform.redactions) {
-      assertContainedInRect(redaction, fullRotatedBounds, 'redaction')
-      assertContainedInRect(redaction, effectiveBounds, 'redaction')
-    }
+    validateParsedTransform(parsedTransform)
     const rotatedBox = rotateBoundingBox(parsedBox, parsedTransform.normalizedSize, parsedTransform.rotation)
     assertContainedInRect(rotatedBox, fullRotatedBounds, 'rotated bounding box')
     assertContainedInRect(rotatedBox, effectiveBounds, 'bounding box')

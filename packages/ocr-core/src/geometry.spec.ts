@@ -4,6 +4,7 @@ import {
   scaleToLongestEdge,
   transformBoundingBox,
   validateProcessedBoundingBox,
+  validateProcessedImageTransform,
   type ProcessedImageTransform,
   type Rotation,
 } from './index'
@@ -36,6 +37,42 @@ function deepFreeze<T>(value: T): T {
 }
 
 describe('OCR image geometry public contracts', () => {
+  it('exposes a complete transform validator for valid null-crop and rotated-crop transforms', () => {
+    expect(() => validateProcessedImageTransform(transform())).not.toThrow()
+    expect(() => validateProcessedImageTransform(transform({
+      rotation: 90,
+      crop: { x: 20, y: 10, width: 60, height: 120 },
+      processedSize: { width: 30, height: 60 },
+    }))).not.toThrow()
+  })
+
+  it.each([
+    { label: 'crop outside rotated bounds', overrides: { rotation: 90 as Rotation, crop: { x: 50, y: 10, width: 60, height: 120 }, processedSize: { width: 30, height: 60 } } },
+    { label: 'redaction outside effective crop', overrides: { rotation: 90 as Rotation, crop: { x: 20, y: 10, width: 60, height: 120 }, redactions: [{ x: 10, y: 20, width: 10, height: 10 }], processedSize: { width: 30, height: 60 } } },
+    { label: 'arbitrary processed aspect', overrides: { processedSize: { width: 100, height: 40 } } },
+    { label: 'processed enlargement', overrides: { processedSize: { width: 300, height: 150 } } },
+  ])('rejects a malformed complete transform: $label', ({ overrides }) => {
+    expect(() => validateProcessedImageTransform(transform(overrides))).toThrow(OcrCoreValidationError)
+  })
+
+  it('rejects redaction metadata over the synchronous budget before reading numeric slots', () => {
+    const redactions = new Proxy(new Array(4097), { get(target, property, receiver) { if (property !== 'length') throw new Error('numeric slot read'); return Reflect.get(target, property, receiver) } })
+    expect(() => validateProcessedImageTransform(transform({ redactions }))).toThrow(OcrCoreValidationError)
+  })
+
+  it('rejects transform accessors and proxies without executing getters', () => {
+    let getterCalls = 0
+    const accessor = { ...transform() }
+    Object.defineProperty(accessor, 'schemaVersion', { get: () => { getterCalls += 1; throw new Error('getter executed') } })
+    expect(() => validateProcessedImageTransform(accessor)).toThrow(OcrCoreValidationError)
+    expect(getterCalls).toBe(0)
+    const proxy = new Proxy(transform(), { get() { throw new Error('proxy executed') } })
+    expect(() => validateProcessedImageTransform(proxy)).toThrow(OcrCoreValidationError)
+  })
+
+  it.each([null, 1, 'transform', []])('fails closed for non-record transform input: %s', (value) => {
+    expect(() => validateProcessedImageTransform(value as never)).toThrow(OcrCoreValidationError)
+  })
   it.each([
     {
       rotation: 0 as Rotation,
