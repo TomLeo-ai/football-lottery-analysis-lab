@@ -1,0 +1,161 @@
+{
+  "schemaVersion": "THIRD_PARTY_OCR_MANIFEST_V1",
+  "components": [
+    {
+      "component": "tesseract.js",
+      "versionOrCommit": "7.0.0",
+      "sourceUrl": "https://github.com/naptha/tesseract.js/tree/v7.0.0",
+      "spdxIdentifier": "Apache-2.0",
+      "copyrightOrNoticeSource": "https://github.com/naptha/tesseract.js/blob/v7.0.0/LICENSE.md",
+      "repositoryLicensePath": "LICENSE.md",
+      "redistributionNote": "Retain the Apache-2.0 license and applicable notices when redistributing the worker package.",
+      "licensePath": "third_party/ocr/licenses/tesseract.js-7.0.0.txt",
+      "licenseBytes": 11357,
+      "licenseSha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1"
+    },
+    {
+      "component": "tesseract.js-core",
+      "versionOrCommit": "7.0.0",
+      "sourceUrl": "https://github.com/naptha/tesseract.js-core/tree/v7.0.0",
+      "spdxIdentifier": "Apache-2.0",
+      "copyrightOrNoticeSource": "https://github.com/naptha/tesseract.js-core/blob/v7.0.0/LICENSE",
+      "repositoryLicensePath": "LICENSE",
+      "redistributionNote": "Retain the Apache-2.0 license for the wrapper and the separately inventoried native-component notices for the WebAssembly payload.",
+      "licensePath": "third_party/ocr/licenses/tesseract.js-core-7.0.0.txt",
+      "licenseBytes": 11358,
+      "licenseSha256": "c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08"
+    },
+    {
+      "component": "@tesseract.js-data/eng",
+      "versionOrCommit": "1.0.0",
+      "sourceUrl": "https://github.com/naptha/tessdata/tree/b86746569320a6103cea84cc2b8d9ee74f0f45d3/4.0.0_best_int",
+      "spdxIdentifier": "Apache-2.0",
+      "copyrightOrNoticeSource": "https://github.com/tesseract-ocr/tessdata_best/blob/e9f15884bc503cf905c8a1dbbc9cb14458152628/LICENSE",
+      "repositoryLicensePath": "tesseract-ocr/tessdata_best/LICENSE",
+      "redistributionNote": "The npm wrapper declares MIT, but the shipped integerized traineddata derives from the pinned Apache-2.0 tessdata_best source; retain that data license and do not treat wrapper metadata as a data-rights grant.",
+      "licensePath": "third_party/ocr/licenses/tessdata-eng-1.0.0.txt",
+      "licenseBytes": 10173,
+      "licenseSha256": "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9"
+    },
+    {
+      "component": "@tesseract.js-data/chi_sim",
+      "versionOrCommit": "1.0.0",
+      "sourceUrl": "https://github.com/naptha/tessdata/tree/b86746569320a6103cea84cc2b8d9ee74f0f45d3/4.0.0_best_int",
+      "spdxIdentifier": "Apache-2.0",
+      "copyrightOrNoticeSource": "https://github.com/tesseract-ocr/tessdata_best/blob/e9f15884bc503cf905c8a1dbbc9cb14458152628/LICENSE",
+      "repositoryLicensePath": "tesseract-ocr/tessdata_best/LICENSE",
+      "redistributionNote": "The npm wrapper declares MIT, but the shipped integerized traineddata derives from the pinned Apache-2.0 tessdata_best source; retain that data license and do not treat wrapper metadata as a data-rights grant.",
+      "licensePath": "third_party/ocr/licenses/tessdata-chi_sim-1.0.0.txt",
+      "licenseBytes": 10173,
+      "licenseSha256": "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9"
+    },
+    {
+      "component": "tesseract",
+      "versionOrCommit": "2a9c1c49c360462733c386d2a44fcd22c4e21411",
+      "sourceUrl": "https://github.com/Balearica/tesseract/commit/2a9c1c49c360462733c386d2a44fcd22c4e21411",
+      "spdxIdentifier": "Apache-2.0",
+      "copyrightOrNoticeSource": "https://github.com/Balearica/tesseract/blob/2a9c1c49c360462733c386d2a44fcd22c4e21411/LICENSE",
+      "repositoryLicensePath": "LICENSE",
+      "redistributionNote": "Retain the Apache-2.0 license and applicable notices for the Tesseract fork embedded in tesseract.js-core.",
+      "licensePath": "third_party/ocr/licenses/tesseract-2a9c1c49c360462733c386d2a44fcd22c4e21411.txt",
+      "licenseBytes": 11358,
+      "licenseSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "component": "leptonica",
+      "versionOrCommit": "4af068b56a9674da915debea4ed7e1b9885b17e8",
+      "sourceUrl": "https://github.com/DanBloomberg/leptonica/commit/4af068b56a9674da915debea4ed7e1b9885b17e8",
+      "spdxIdentifier": "BSD-2-Clause",
+      "copyrightOrNoticeSource": "https://github.com/DanBloomberg/leptonica/blob/4af068b56a9674da915debea4ed7e1b9885b17e8/leptonica-license.txt",
+      "repositoryLicensePath": "leptonica-license.txt",
+      "redistributionNote": "Retain the copyright, conditions, and disclaimer in source distributions and reproduce them in binary-distribution documentation or materials.",
+      "licensePath": "third_party/ocr/licenses/leptonica-4af068b56a9674da915debea4ed7e1b9885b17e8.txt",
+      "licenseBytes": 1521,
+      "licenseSha256": "87829abb5bbb00b55a107365da89e9a33f86c4250169e5a1e5588505be7d5806"
+    },
+    {
+      "component": "libjpeg",
+      "versionOrCommit": "6c0fcb8ddee365e7abc4d332662b06900612e923",
+      "sourceUrl": "https://github.com/LuaDist/libjpeg/commit/6c0fcb8ddee365e7abc4d332662b06900612e923",
+      "spdxIdentifier": "IJG",
+      "copyrightOrNoticeSource": "https://github.com/LuaDist/libjpeg/blob/6c0fcb8ddee365e7abc4d332662b06900612e923/README",
+      "repositoryLicensePath": "README",
+      "redistributionNote": "Follow the IJG README conditions, including source-change indications or the required executable-code acknowledgment, as applicable.",
+      "licensePath": "third_party/ocr/licenses/libjpeg-6c0fcb8ddee365e7abc4d332662b06900612e923.txt",
+      "licenseBytes": 19110,
+      "licenseSha256": "c791da525733040e622ed257c7b096b8f5191b332604ead0c6bc2b54cbd8e0d1"
+    },
+    {
+      "component": "giflib",
+      "versionOrCommit": "fa37672085ce4b3d62c51627ab3c8cf2dda8009a",
+      "sourceUrl": "https://github.com/mirrorer/giflib/commit/fa37672085ce4b3d62c51627ab3c8cf2dda8009a",
+      "spdxIdentifier": "MIT",
+      "copyrightOrNoticeSource": "https://github.com/mirrorer/giflib/blob/fa37672085ce4b3d62c51627ab3c8cf2dda8009a/COPYING",
+      "repositoryLicensePath": "COPYING",
+      "redistributionNote": "Include the copyright and permission notice in copies or substantial portions of the software.",
+      "licensePath": "third_party/ocr/licenses/giflib-fa37672085ce4b3d62c51627ab3c8cf2dda8009a.txt",
+      "licenseBytes": 1088,
+      "licenseSha256": "0c9b7990ecdca88b676db232c226548ac408b279f550d424d996f0d83591dd8e"
+    },
+    {
+      "component": "libpng",
+      "versionOrCommit": "a37d4836519517bdce6cb9d956092321eca3e73b",
+      "sourceUrl": "https://github.com/pnggroup/libpng/commit/a37d4836519517bdce6cb9d956092321eca3e73b",
+      "spdxIdentifier": "Libpng-2.0",
+      "copyrightOrNoticeSource": "https://github.com/pnggroup/libpng/blob/a37d4836519517bdce6cb9d956092321eca3e73b/LICENSE",
+      "repositoryLicensePath": "LICENSE",
+      "redistributionNote": "Retain the copyright notice; do not misrepresent origin, and plainly mark altered source versions.",
+      "licensePath": "third_party/ocr/licenses/libpng-a37d4836519517bdce6cb9d956092321eca3e73b.txt",
+      "licenseBytes": 5345,
+      "licenseSha256": "33ba4e187d8b0c8d7ab2bc2e522bb095219e03089e9aa0122b4fb9eb2b7de82b"
+    },
+    {
+      "component": "libtiff",
+      "versionOrCommit": "b51bb157123264e26d34c09cc673d213aea61fc7",
+      "sourceUrl": "https://gitlab.com/libtiff/libtiff/-/commit/b51bb157123264e26d34c09cc673d213aea61fc7",
+      "spdxIdentifier": "libtiff",
+      "copyrightOrNoticeSource": "https://gitlab.com/libtiff/libtiff/-/blob/b51bb157123264e26d34c09cc673d213aea61fc7/COPYRIGHT",
+      "repositoryLicensePath": "COPYRIGHT",
+      "redistributionNote": "Keep the copyright and permission notice with copies and related documentation; do not use the named authors for publicity without permission.",
+      "licensePath": "third_party/ocr/licenses/libtiff-b51bb157123264e26d34c09cc673d213aea61fc7.txt",
+      "licenseBytes": 1139,
+      "licenseSha256": "92b72ba97e6c2749c2a94bc0ef646b47080217f1e772a482b33cf5a5f98a6506"
+    },
+    {
+      "component": "libwebp",
+      "versionOrCommit": "20ef03ee351d4ff03fc5ff3ec4804a879d1b9d5c",
+      "sourceUrl": "https://github.com/webmproject/libwebp/commit/20ef03ee351d4ff03fc5ff3ec4804a879d1b9d5c",
+      "spdxIdentifier": "BSD-3-Clause",
+      "copyrightOrNoticeSource": "https://github.com/webmproject/libwebp/blob/20ef03ee351d4ff03fc5ff3ec4804a879d1b9d5c/COPYING",
+      "repositoryLicensePath": "COPYING",
+      "redistributionNote": "Retain the notice and conditions in source distributions and reproduce them in binary-distribution documentation or materials; no endorsement.",
+      "licensePath": "third_party/ocr/licenses/libwebp-20ef03ee351d4ff03fc5ff3ec4804a879d1b9d5c.txt",
+      "licenseBytes": 1496,
+      "licenseSha256": "5aec868f669e384a22372a4e8a1a6cd7d44c64cd451f960ca69cc170d1e13acf"
+    },
+    {
+      "component": "zlib",
+      "versionOrCommit": "21767c654d31d2dccdde4330529775c6c5fd5389",
+      "sourceUrl": "https://github.com/madler/zlib/commit/21767c654d31d2dccdde4330529775c6c5fd5389",
+      "spdxIdentifier": "Zlib",
+      "copyrightOrNoticeSource": "https://github.com/madler/zlib/blob/21767c654d31d2dccdde4330529775c6c5fd5389/README",
+      "repositoryLicensePath": "README",
+      "redistributionNote": "Do not misrepresent origin, plainly mark altered source, and preserve the notice in source distributions.",
+      "licensePath": "third_party/ocr/licenses/zlib-21767c654d31d2dccdde4330529775c6c5fd5389.txt",
+      "licenseBytes": 5368,
+      "licenseSha256": "fc2c3368901700f0acdeb1d8afeaca5923296768ec6824ecdf627aac396001fd"
+    },
+    {
+      "component": "openlibm",
+      "versionOrCommit": "ae2d91698508701c83cab83714d42a1146dccf85",
+      "sourceUrl": "https://github.com/JuliaMath/openlibm/commit/ae2d91698508701c83cab83714d42a1146dccf85",
+      "spdxIdentifier": "MIT AND ISC AND BSD-2-Clause AND SunPro",
+      "copyrightOrNoticeSource": "https://github.com/JuliaMath/openlibm/blob/ae2d91698508701c83cab83714d42a1146dccf85/LICENSE.md",
+      "repositoryLicensePath": "LICENSE.md",
+      "redistributionNote": "Preserve the applicable MIT, ISC, BSD-2-Clause, and SunPro notices for the compiled library portions; the upstream file separately identifies LGPL test files not embedded in the runtime.",
+      "licensePath": "third_party/ocr/licenses/openlibm-ae2d91698508701c83cab83714d42a1146dccf85.txt",
+      "licenseBytes": 5857,
+      "licenseSha256": "b1843fbf5b03f519a5f0a44fce751bdd1022ae7148614923f9d6293e17a18b17"
+    }
+  ]
+}
