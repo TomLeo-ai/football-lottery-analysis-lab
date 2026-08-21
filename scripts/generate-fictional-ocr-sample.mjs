@@ -34,8 +34,8 @@ const expectedMetadata = {
 };
 const approvedVisibleLabels = ['MATCH REF', 'MARKET REF', 'DATE', 'LEAGUE', 'HOME', 'AWAY', 'KICKOFF', 'PLAY TYPE', 'SELECTION', 'ODDS'];
 const expectedMatches = [
-  { token: 'DEMO-MATCH-A', rows: { 'MATCH REF': 'DEMO-MATCH-A', 'MARKET REF': 'DEMO-MATCH-A', DATE: '2030-04-01', LEAGUE: '演示联赛', HOME: 'Blue Harbor', AWAY: '青石湾队', KICKOFF: '2030-04-01 19:30 +08:00', 'PLAY TYPE': 'WIN_DRAW_LOSS', SELECTION: 'HOME_WIN', ODDS: '2.15' } },
-  { token: 'DEMO-MATCH-B', rows: { 'MATCH REF': 'DEMO-MATCH-B', 'MARKET REF': 'DEMO-MATCH-B', DATE: '2030-04-02', LEAGUE: '演示联赛', HOME: '红枫城', AWAY: '星河谷队', KICKOFF: '2030-04-02 20:00 +08:00', 'PLAY TYPE': 'WIN_DRAW_LOSS', SELECTION: 'DRAW', ODDS: '3.40' } },
+  { token: 'DEMO-MATCH-A', rows: { 'MATCH REF': 'DEMO-MATCH-A', 'MARKET REF': 'DEMO-MATCH-A', DATE: '2030-04-01', LEAGUE: '演示联赛', HOME: 'Blue Harbor', AWAY: '青石湾队', KICKOFF: '2030-04-01T19:30:00+08:00', 'PLAY TYPE': 'WIN_DRAW_LOSS', SELECTION: 'HOME_WIN', ODDS: '2.15' } },
+  { token: 'DEMO-MATCH-B', rows: { 'MATCH REF': 'DEMO-MATCH-B', 'MARKET REF': 'DEMO-MATCH-B', DATE: '2030-04-02', LEAGUE: '演示联赛', HOME: '红枫城', AWAY: '星河谷队', KICKOFF: '2030-04-02T20:00:00+08:00', 'PLAY TYPE': 'WIN_DRAW_LOSS', SELECTION: 'DRAW', ODDS: '3.4' } },
 ];
 const resourceNodeSelector = 'script,img,svg,link,base,iframe,object,embed,video,audio,source,canvas,template';
 

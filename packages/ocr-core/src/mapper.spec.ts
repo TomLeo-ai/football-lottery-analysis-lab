@@ -21,6 +21,21 @@ describe('mapNormalizedOcr', () => {
     const result = mapNormalizedOcr(lines(['MATCH REF: A', 0.9, 0, 0, 20], ['HOME: Team A', 0.6, 100, 50, 20]), transform, ids); expect(result.valid).toBe(true); if (!result.valid) return
     const candidate = result.value.fields.find((field) => field.fieldName === 'homeTeam'); expect(candidate?.confidence).toBe(0.6); expect(candidate?.boundingBox).toEqual({ x: 120, y: 50, width: 40, height: 10 })
   })
+  it('removes OCR-inserted whitespace only between adjacent Han characters', () => {
+    let id = 40
+    const createUuid = () => `550e8400-e29b-41d4-a716-4466554400${String(id++).padStart(2, '0')}`
+    const result = mapNormalizedOcr([
+      { words: [{ text: 'MATCH', confidence: 0.9 }, { text: 'REF:', confidence: 0.9 }, { text: 'DEMO-MATCH-A', confidence: 0.9 }] },
+      { words: [{ text: 'LEAGUE:', confidence: 0.9 }, { text: '演', confidence: 0.9 }, { text: '示', confidence: 0.9 }, { text: '联', confidence: 0.9 }, { text: '赛', confidence: 0.9 }] },
+      { words: [{ text: 'HOME:', confidence: 0.9 }, { text: 'Blue', confidence: 0.9 }, { text: 'Harbor', confidence: 0.9 }] },
+      { words: [{ text: 'AWAY:', confidence: 0.9 }, { text: '红', confidence: 0.9 }, { text: '枫', confidence: 0.9 }, { text: '城', confidence: 0.9 }] },
+    ], transform, createUuid)
+    expect(result.valid).toBe(true)
+    if (!result.valid) return
+    expect(result.value.fields.find((field) => field.fieldName === 'league')?.fieldValue).toBe('演示联赛')
+    expect(result.value.fields.find((field) => field.fieldName === 'homeTeam')?.fieldValue).toBe('Blue Harbor')
+    expect(result.value.fields.find((field) => field.fieldName === 'awayTeam')?.fieldValue).toBe('红枫城')
+  })
   it('omits empty or partially unbounded values and leaves absent optional fields absent', () => {
     const noBox: NormalizedOcrLine = { words: [{ text: 'HOME:', confidence: 0.9, boundingBox: { x: 0, y: 0, width: 10, height: 10 } }, { text: 'Team', confidence: 0.8 }] }; const result = mapNormalizedOcr([lines(['MATCH REF: A', 0.9, 0, 0])[0], noBox], transform, ids); expect(result.valid).toBe(true); if (!result.valid) return
     const home = result.value.fields.find((field) => field.fieldName === 'homeTeam'); expect(home?.fieldValue).toBe('Team'); expect(home?.boundingBox).toBeUndefined(); expect(result.value.fields.some((field) => field.fieldName === 'awayTeam')).toBe(false)
