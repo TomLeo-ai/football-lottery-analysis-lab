@@ -1,4 +1,5 @@
 import './assets/main.css';
+import './assets/ocr-workflow.css';
 
 import { createPinia } from 'pinia';
 import { createApp } from 'vue';
