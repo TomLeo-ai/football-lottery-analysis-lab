@@ -1,4 +1,5 @@
-import type { ApiResult, OfficialLink } from '@/types/officialLink';
+import type { ApiResult } from '@/types/api';
+import type { OfficialLink } from '@/types/officialLink';
 
 export async function fetchOfficialLinks(): Promise<OfficialLink[]> {
   const response = await fetch('/api/official-links');

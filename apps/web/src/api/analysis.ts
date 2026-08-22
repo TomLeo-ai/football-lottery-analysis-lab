@@ -1,4 +1,4 @@
-import type { ApiResult } from '@/types/officialLink';
+import type { ApiResult } from '@/types/api';
 import type { AnalysisGeneratePayload, AnalysisReport } from '@/types/analysis';
 
 export async function generateAnalysis(payload: AnalysisGeneratePayload): Promise<AnalysisReport> {
