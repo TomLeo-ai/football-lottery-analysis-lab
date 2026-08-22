@@ -262,6 +262,18 @@ public class JdbcOcrWorkflowRepository implements OcrWorkflowRepository {
     }
 
     @Override
+    public Optional<String> findWorkflowIdByOcrTaskId(String ocrTaskId) {
+        try {
+            return Optional.ofNullable(jdbcTemplate.queryForObject(
+                    "select workflow_id from ocr_task where ocr_task_id = ?",
+                    String.class,
+                    ocrTaskId));
+        } catch (EmptyResultDataAccessException ignored) {
+            return Optional.empty();
+        }
+    }
+
+    @Override
     public long nextOcrSequence() {
         return nextSequence("select ocr_task_id from ocr_task where ocr_task_id like ?", OCR_PREFIX);
     }
@@ -299,11 +311,96 @@ public class JdbcOcrWorkflowRepository implements OcrWorkflowRepository {
     }
 
     @Override
+    public void saveWorkflowConfirmedSnapshot(
+            String workflowId,
+            long confirmedRevision,
+            UserConfirmedSnapshotResponse confirmedSnapshot,
+            String payloadJson
+    ) {
+        jdbcTemplate.update("""
+                        insert into ocr_confirmed_snapshot (
+                            snapshot_id,
+                            ocr_task_id,
+                            source_type,
+                            snapshot_status,
+                            analysis_allowed,
+                            risk_preference,
+                            budget_amount,
+                            currency,
+                            matches_json,
+                            markets_json,
+                            payload_json,
+                            confirmed_at,
+                            workflow_id,
+                            confirmed_revision,
+                            authority_type,
+                            provenance_json,
+                            schema_version
+                        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                confirmedSnapshot.snapshotId(),
+                confirmedSnapshot.ocrTaskId(),
+                confirmedSnapshot.sourceType(),
+                confirmedSnapshot.snapshotStatus(),
+                confirmedSnapshot.analysisAllowed(),
+                confirmedSnapshot.riskPreference(),
+                confirmedSnapshot.budgetAmount(),
+                confirmedSnapshot.currency(),
+                toJson(confirmedSnapshot.matches()),
+                toJson(confirmedSnapshot.markets()),
+                payloadJson,
+                confirmedSnapshot.confirmedAt(),
+                workflowId,
+                confirmedRevision,
+                confirmedSnapshot.authorityType(),
+                "{}",
+                confirmedSnapshot.schemaVersion());
+    }
+
+    @Override
     public Optional<UserConfirmedSnapshotResponse> findConfirmedSnapshot(String snapshotId) {
-        return findPayload(
-                "select payload_json from ocr_confirmed_snapshot where snapshot_id = ?",
-                UserConfirmedSnapshotResponse.class,
-                snapshotId);
+        try {
+            return Optional.ofNullable(jdbcTemplate.queryForObject("""
+                            select snapshot_id,
+                                   ocr_task_id,
+                                   source_type,
+                                   snapshot_status,
+                                   analysis_allowed,
+                                   risk_preference,
+                                   budget_amount,
+                                   currency,
+                                   matches_json,
+                                   markets_json,
+                                   confirmed_at,
+                                   workflow_id,
+                                   confirmed_revision,
+                                   authority_type,
+                                   schema_version
+                            from ocr_confirmed_snapshot
+                            where snapshot_id = ?
+                            """,
+                    (resultSet, rowNumber) -> new UserConfirmedSnapshotResponse(
+                            resultSet.getString("snapshot_id"),
+                            resultSet.getString("ocr_task_id"),
+                            resultSet.getString("source_type"),
+                            resultSet.getString("snapshot_status"),
+                            resultSet.getBoolean("analysis_allowed"),
+                            resultSet.getString("risk_preference"),
+                            resultSet.getBigDecimal("budget_amount"),
+                            resultSet.getString("currency"),
+                            fromJsonList(resultSet.getString("matches_json"), new TypeReference<List<org.footballlab.ocr.domain.ConfirmedMatchResponse>>() {
+                            }),
+                            fromJsonList(resultSet.getString("markets_json"), new TypeReference<List<org.footballlab.ocr.domain.ConfirmedMarketResponse>>() {
+                            }),
+                            resultSet.getString("confirmed_at"),
+                            resultSet.getString("workflow_id"),
+                            nullableLong(resultSet.getObject("confirmed_revision")),
+                            resultSet.getString("authority_type"),
+                            resultSet.getString("schema_version") == null ? "LEGACY_V1" : resultSet.getString("schema_version")),
+                    snapshotId));
+        } catch (EmptyResultDataAccessException ignored) {
+            return Optional.empty();
+        }
     }
 
     @Override
@@ -318,6 +415,11 @@ public class JdbcOcrWorkflowRepository implements OcrWorkflowRepository {
         jdbcTemplate.update(
                 "update screenshot_task set payload_json = null where workflow_id = ?",
                 workflowId);
+        clearWorkflowOcrPayloadsAndDrafts(workflowId);
+    }
+
+    @Override
+    public void clearWorkflowOcrPayloadsAndDrafts(String workflowId) {
         jdbcTemplate.update("""
                         update ocr_task
                         set raw_text = null,
@@ -327,6 +429,13 @@ public class JdbcOcrWorkflowRepository implements OcrWorkflowRepository {
                         """,
                 workflowId);
         jdbcTemplate.update("delete from ocr_review_draft where workflow_id = ?", workflowId);
+    }
+
+    private Long nullableLong(Object value) {
+        if (value == null) {
+            return null;
+        }
+        return ((Number) value).longValue();
     }
 
     private long nextSequence(String sql, String prefix) {
@@ -376,12 +485,20 @@ public class JdbcOcrWorkflowRepository implements OcrWorkflowRepository {
     }
 
     private List<OcrExtractedFieldResponse> fromJsonList(String value) {
+        return fromJsonList(value, new TypeReference<>() {
+        });
+    }
+
+    private <T> T fromJsonList(String value, TypeReference<T> typeReference) {
         if (value == null || value.isBlank()) {
-            return List.of();
+            try {
+                return objectMapper.readValue("[]", typeReference);
+            } catch (JsonProcessingException exception) {
+                throw new IllegalStateException("Failed to deserialize empty OCR list payload.", exception);
+            }
         }
         try {
-            return objectMapper.readValue(value, new TypeReference<>() {
-            });
+            return objectMapper.readValue(value, typeReference);
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("Failed to deserialize OCR fields payload.", exception);
         }

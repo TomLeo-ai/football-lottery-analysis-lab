@@ -6,15 +6,11 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.footballlab.ocr.repository.OcrWorkflowRepository;
-import org.footballlab.ocr.domain.ConfirmedMarketResponse;
-import org.footballlab.ocr.domain.ConfirmedMatchResponse;
 import org.footballlab.ocr.domain.LocalOcrParseRequest;
 import org.footballlab.ocr.domain.OcrExtractedFieldResponse;
-import org.footballlab.ocr.domain.OcrReviewConfirmRequest;
 import org.footballlab.ocr.domain.OcrTaskResponse;
 import org.footballlab.ocr.domain.ScreenshotTaskCreateRequest;
 import org.footballlab.ocr.domain.ScreenshotTaskResponse;
-import org.footballlab.ocr.domain.UserConfirmedSnapshotResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -33,13 +29,11 @@ public class OcrWorkflowServiceImpl implements OcrWorkflowService {
     private final OcrWorkflowRepository ocrWorkflowRepository;
     private final AtomicLong screenshotSequence;
     private final AtomicLong ocrSequence;
-    private final AtomicLong snapshotSequence;
 
     public OcrWorkflowServiceImpl(OcrWorkflowRepository ocrWorkflowRepository) {
         this.ocrWorkflowRepository = ocrWorkflowRepository;
         this.screenshotSequence = new AtomicLong(ocrWorkflowRepository.nextScreenshotSequence());
         this.ocrSequence = new AtomicLong(ocrWorkflowRepository.nextOcrSequence());
-        this.snapshotSequence = new AtomicLong(ocrWorkflowRepository.nextSnapshotSequence());
     }
 
     @Override
@@ -84,46 +78,6 @@ public class OcrWorkflowServiceImpl implements OcrWorkflowService {
                 fields,
                 now());
         ocrWorkflowRepository.saveOcrTask(response);
-        return response;
-    }
-
-    @Override
-    public UserConfirmedSnapshotResponse confirmReview(OcrReviewConfirmRequest request) {
-        if (!ocrWorkflowRepository.existsOcrTask(request.ocrTaskId())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "OCR task does not exist.");
-        }
-
-        List<ConfirmedMatchResponse> matches = request.matches().stream()
-                .map(match -> new ConfirmedMatchResponse(
-                        match.matchId(),
-                        match.matchDate(),
-                        match.league(),
-                        match.homeTeam(),
-                        match.awayTeam(),
-                        match.kickoffTime()))
-                .toList();
-        List<ConfirmedMarketResponse> markets = request.markets().stream()
-                .map(market -> new ConfirmedMarketResponse(
-                        market.marketId(),
-                        market.matchId(),
-                        market.playType(),
-                        market.selection(),
-                        market.odds()))
-                .toList();
-
-        UserConfirmedSnapshotResponse response = new UserConfirmedSnapshotResponse(
-                "snapshot-%06d".formatted(snapshotSequence.getAndIncrement()),
-                request.ocrTaskId(),
-                USER_SCREENSHOT_CONFIRMED,
-                CONFIRMED,
-                true,
-                request.riskPreference(),
-                request.budgetAmount(),
-                request.currency(),
-                matches,
-                markets,
-                now());
-        ocrWorkflowRepository.saveConfirmedSnapshot(response);
         return response;
     }
 

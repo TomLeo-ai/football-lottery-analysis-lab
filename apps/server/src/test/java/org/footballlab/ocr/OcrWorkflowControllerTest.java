@@ -8,8 +8,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.nio.charset.StandardCharsets;
 
-import org.footballlab.ocr.domain.UserConfirmedSnapshotResponse;
-import org.footballlab.ocr.repository.OcrWorkflowRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -25,11 +23,8 @@ class OcrWorkflowControllerTest {
     @Autowired
     private MockMvc mockMvc;
 
-    @Autowired
-    private OcrWorkflowRepository ocrWorkflowRepository;
-
     @Test
-    void shouldCreateScreenshotTaskParseLocalOcrAndConfirmUserSnapshot() throws Exception {
+    void shouldCreateScreenshotTaskParseLocalOcrAndExposeLegacyConfirmTombstone() throws Exception {
         String screenshotRequest = """
                 {
                   "fileName": "fictional-demo-slip.png",
@@ -86,55 +81,11 @@ class OcrWorkflowControllerTest {
         String parseBody = parseResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
         String ocrTaskId = JsonFieldExtractor.extractString(parseBody, "ocrTaskId");
 
-        String confirmRequest = """
-                {
-                  "ocrTaskId": "%s",
-                  "riskPreference": "BALANCED",
-                  "budgetAmount": 20,
-                  "currency": "CNY",
-                  "matches": [
-                    {
-                      "matchId": "demo-match-001",
-                      "matchDate": "2026-07-01",
-                      "league": "Fictional Coastal League",
-                      "homeTeam": "Northport United",
-                      "awayTeam": "Lakeside City",
-                      "kickoffTime": "2026-07-01T19:30:00+08:00"
-                    }
-                  ],
-                  "markets": [
-                    {
-                      "marketId": "demo-market-001",
-                      "matchId": "demo-match-001",
-                      "playType": "WIN_DRAW_LOSS",
-                      "selection": "HOME_WIN",
-                      "odds": 2.05
-                    }
-                  ]
-                }
-                """.formatted(ocrTaskId);
-
-        MvcResult confirmResult = mockMvc.perform(post("/api/ocr/review/confirm")
+        mockMvc.perform(post("/api/ocr/review/confirm")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(confirmRequest))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.sourceType").value("USER_SCREENSHOT_CONFIRMED"))
-                .andExpect(jsonPath("$.data.snapshotStatus").value("CONFIRMED"))
-                .andExpect(jsonPath("$.data.analysisAllowed").value(true))
-                .andExpect(jsonPath("$.data.matches[0].homeTeam").value("Northport United"))
-                .andExpect(jsonPath("$.data.markets[0].odds").value(2.05))
-                .andReturn();
-
-        String confirmBody = confirmResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
-        String snapshotId = JsonFieldExtractor.extractString(confirmBody, "snapshotId");
-
-        assertThat(ocrWorkflowRepository.findScreenshotTask(screenshotTaskId)).isPresent();
-        assertThat(ocrWorkflowRepository.findOcrTask(ocrTaskId)).isPresent();
-        assertThat(ocrWorkflowRepository.findConfirmedSnapshot(snapshotId))
-                .isPresent()
-                .get()
-                .extracting(UserConfirmedSnapshotResponse::sourceType)
-                .isEqualTo("USER_SCREENSHOT_CONFIRMED");
+                        .content("{"))
+                .andExpect(status().isGone())
+                .andExpect(jsonPath("$.error.errorCode").value("LEGACY_CONFIRM_ENDPOINT_REMOVED"));
     }
 
     private static final class JsonFieldExtractor {

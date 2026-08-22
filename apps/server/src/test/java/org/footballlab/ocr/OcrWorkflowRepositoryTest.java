@@ -69,7 +69,7 @@ class OcrWorkflowRepositoryTest {
                 "CONFIRMED",
                 true,
                 "BALANCED",
-                BigDecimal.valueOf(20),
+                new BigDecimal("20.00"),
                 "CNY",
                 List.of(new ConfirmedMatchResponse(
                         "demo-match-001",
