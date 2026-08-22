@@ -10,6 +10,7 @@ import java.util.stream.Collectors;
 
 import org.footballlab.analysis.domain.AnalysisGenerateRequest;
 import org.footballlab.analysis.domain.AnalysisReportResponse;
+import org.footballlab.analysis.domain.ResolvedAnalysisEngineConfiguration;
 import org.footballlab.analysis.repository.AnalysisReportRepository;
 import org.footballlab.strategy.domain.StrategyParameterRequest;
 import org.footballlab.strategy.service.StrategyParameterValidator;
@@ -25,15 +26,18 @@ public class AnalysisServiceImpl implements AnalysisService {
 
     private final AnalysisReportRepository analysisReportRepository;
     private final StrategyParameterValidator strategyParameterValidator;
+    private final AnalysisEngineConfigurationResolver engineConfigurationResolver;
     private final Map<String, AnalysisEngine> analysisEngines;
     private final AtomicLong reportSequence;
 
     public AnalysisServiceImpl(
             AnalysisReportRepository analysisReportRepository,
             StrategyParameterValidator strategyParameterValidator,
+            AnalysisEngineConfigurationResolver engineConfigurationResolver,
             List<AnalysisEngine> analysisEngines) {
         this.analysisReportRepository = analysisReportRepository;
         this.strategyParameterValidator = strategyParameterValidator;
+        this.engineConfigurationResolver = engineConfigurationResolver;
         this.analysisEngines = analysisEngines.stream()
                 .collect(Collectors.toUnmodifiableMap(AnalysisEngine::engineMode, Function.identity()));
         this.reportSequence = new AtomicLong(analysisReportRepository.nextReportSequence());
@@ -41,56 +45,60 @@ public class AnalysisServiceImpl implements AnalysisService {
 
     @Override
     public AnalysisReportResponse generateAnalysis(AnalysisGenerateRequest request) {
-        validateConfirmedSnapshot(request);
+        AuthoritativeAnalysisInput input = AuthoritativeAnalysisInput.fromClientConfirmedRequest(request);
+        validateConfirmedSnapshot(input);
         StrategyParameterRequest strategyParameters = strategyParameterValidator.resolve(request.strategyParameters());
-        validateExcludedPlayTypes(request, strategyParameters);
+        validateExcludedPlayTypes(input, strategyParameters);
+        ResolvedAnalysisEngineConfiguration engineConfiguration = engineConfigurationResolver.resolve(
+                request.engineMode(),
+                request.providerKey(),
+                request.modelId(),
+                request.promptVersion());
 
-        AnalysisReportResponse response = resolveAnalysisEngine(request.engineMode())
+        AnalysisReportResponse response = resolveAnalysisEngine(engineConfiguration.engineMode())
                 .generate(new AnalysisEngineContext(
                         "analysis-%06d".formatted(reportSequence.getAndIncrement()),
                         OffsetDateTime.now(DEFAULT_ZONE).toString(),
-                        request,
+                        input,
+                        engineConfiguration,
                         strategyParameters));
         analysisReportRepository.save(response);
         return response;
     }
 
     private AnalysisEngine resolveAnalysisEngine(String engineMode) {
-        String resolvedEngineMode = engineMode == null || engineMode.isBlank()
-                ? MockRuleAnalysisEngine.ENGINE_MODE
-                : engineMode;
-        AnalysisEngine analysisEngine = analysisEngines.get(resolvedEngineMode);
+        AnalysisEngine analysisEngine = analysisEngines.get(engineMode);
         if (analysisEngine != null) {
             return analysisEngine;
         }
         throw new ResponseStatusException(
                 HttpStatus.BAD_REQUEST,
-                "Unsupported engineMode: " + resolvedEngineMode);
+                "Unsupported engineMode: " + engineMode);
     }
 
     private void validateExcludedPlayTypes(
-            AnalysisGenerateRequest request,
+            AuthoritativeAnalysisInput input,
             StrategyParameterRequest strategyParameters) {
         List<String> excludedPlayTypes = strategyParameters.excludedPlayTypes();
-        boolean hasExcludedPlayType = request.markets().stream()
+        boolean hasExcludedPlayType = input.markets().stream()
                 .anyMatch(market -> excludedPlayTypes.contains(market.playType()));
         if (hasExcludedPlayType) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Excluded play type cannot be analyzed.");
         }
     }
 
-    private void validateConfirmedSnapshot(AnalysisGenerateRequest request) {
-        if (!REQUIRED_SOURCE_TYPE.equals(request.sourceType()) || !request.analysisAllowed()) {
+    private void validateConfirmedSnapshot(AuthoritativeAnalysisInput input) {
+        if (!REQUIRED_SOURCE_TYPE.equals(input.sourceType()) || !input.analysisAllowed()) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
                     "Only USER_SCREENSHOT_CONFIRMED snapshots can be analyzed.");
         }
 
-        if (request.matches() == null || request.matches().isEmpty()) {
+        if (input.matches().isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "At least one confirmed match is required.");
         }
 
-        if (request.markets() == null || request.markets().isEmpty()) {
+        if (input.markets().isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "At least one confirmed market is required.");
         }
     }

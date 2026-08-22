@@ -6,9 +6,9 @@ import java.math.BigDecimal;
 import java.util.List;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.footballlab.analysis.domain.AnalysisGenerateRequest;
 import org.footballlab.analysis.domain.AnalysisMarketRequest;
 import org.footballlab.analysis.domain.AnalysisMatchRequest;
+import org.footballlab.analysis.service.AuthoritativeAnalysisInput;
 import org.footballlab.llm.service.PromptContextBuilder;
 import org.footballlab.strategy.domain.StrategyParameterRequest;
 import org.junit.jupiter.api.Test;
@@ -38,18 +38,17 @@ class PromptContextBuilderTest {
                 null,
                 true,
                 "STRONG");
-        AnalysisGenerateRequest request = new AnalysisGenerateRequest(
+        AuthoritativeAnalysisInput input = new AuthoritativeAnalysisInput(
+                "workflow-demo-001",
                 "snapshot-demo-001",
+                "SERVER_CONFIRMED_V2",
                 "USER_SCREENSHOT_CONFIRMED",
+                "CONFIRMED",
                 true,
-                "BALANCED",
                 BigDecimal.valueOf(20),
                 "CNY",
-                "OPENAI_COMPATIBLE",
-                "openai",
-                "gpt-4o-mini",
-                "danche-prediction-v1",
-                strategyParameters,
+                "BALANCED",
+                "2026-07-01T12:00:00+08:00",
                 List.of(new AnalysisMatchRequest(
                         "demo-match-001",
                         "2026-07-01",
@@ -64,10 +63,12 @@ class PromptContextBuilderTest {
                         "HOME_WIN",
                         BigDecimal.valueOf(2.05))));
 
-        String context = builder.buildPredictionContext(request, strategyParameters);
+        String context = builder.buildPredictionContext(input, strategyParameters);
 
         assertThat(context)
                 .contains("strategyParameters")
+                .contains("SERVER_CONFIRMED_V2")
+                .contains("workflow-demo-001")
                 .contains("\"budgetAmount\":30")
                 .contains("\"targetTicketCount\":4")
                 .contains("USER_SCREENSHOT_CONFIRMED")

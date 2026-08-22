@@ -5,7 +5,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import org.footballlab.analysis.domain.AnalysisGenerateRequest;
 import org.footballlab.analysis.domain.AnalysisMarketRequest;
 import org.footballlab.analysis.domain.AnalysisReportResponse;
 import org.footballlab.analysis.domain.ProbabilityInsightResponse;
@@ -29,7 +28,6 @@ public class OpenAiCompatibleAnalysisEngine implements AnalysisEngine {
 
     public static final String ENGINE_MODE = "OPENAI_COMPATIBLE";
 
-    private static final String DEFAULT_PROMPT_VERSION = "danche-prediction-v1";
     private static final String SAFETY_PROMPT_VERSION = "danche-safety-guard-v1";
     private static final String REPORT_STATUS = "GENERATED";
 
@@ -62,17 +60,17 @@ public class OpenAiCompatibleAnalysisEngine implements AnalysisEngine {
 
     @Override
     public AnalysisReportResponse generate(AnalysisEngineContext context) {
-        AnalysisGenerateRequest request = context.request();
-        String promptVersion = resolvePromptVersion(request.promptVersion());
+        AuthoritativeAnalysisInput input = context.input();
+        String promptVersion = context.engineConfiguration().promptVersion();
         LlmProviderInvocationConfig provider = providerRegistry.resolveInvocationConfig(
-                request.providerKey(),
-                request.modelId());
+                context.engineConfiguration().providerKey(),
+                context.engineConfiguration().modelId());
         String systemPrompt = promptPackService.loadPrompt(SAFETY_PROMPT_VERSION)
                 + "\n\n"
                 + promptPackService.loadPrompt(promptVersion);
         String userPrompt = "promptVersion=%s\n%s".formatted(
                 promptVersion,
-                promptContextBuilder.buildPredictionContext(request, context.strategyParameters()));
+                promptContextBuilder.buildPredictionContext(input, context.strategyParameters()));
         String inputPayload = systemPrompt + "\n\n" + userPrompt;
 
             LlmChatResponse chatResponse = null;
@@ -87,7 +85,7 @@ public class OpenAiCompatibleAnalysisEngine implements AnalysisEngine {
             PredictionValidationResult validationResult = outputValidator.validatePredictionOutput(
                     chatResponse.content(),
                     context.strategyParameters(),
-                    request.markets());
+                    input.markets());
             JsonNode llmOutput = validationResult.output();
             String auditId = auditService.recordSuccess(
                     LlmInvocationAuditService.BUSINESS_ANALYSIS_PREDICTION,
@@ -100,14 +98,14 @@ public class OpenAiCompatibleAnalysisEngine implements AnalysisEngine {
 
             return new AnalysisReportResponse(
                     context.reportId(),
-                    request.snapshotId(),
-                    request.sourceType(),
+                    input.snapshotId(),
+                    input.sourceType(),
                     ENGINE_MODE,
                     REPORT_STATUS,
                     context.strategyParameters(),
-                    buildProbabilityAnalysis(request, llmOutput),
+                    buildProbabilityAnalysis(input, llmOutput),
                     buildRiskWarnings(chatResponse.latencyMs(), chatResponse.totalTokens()),
-                    buildSimulatedSelections(request, llmOutput),
+                    buildSimulatedSelections(input, llmOutput),
                     llmOutput.path("complianceNotice").asText(),
                     context.generatedAt(),
                     provider.providerKey(),
@@ -151,16 +149,10 @@ public class OpenAiCompatibleAnalysisEngine implements AnalysisEngine {
         return exception.getReason() == null ? exception.getStatusCode().toString() : exception.getReason();
     }
 
-    private String resolvePromptVersion(String requestedPromptVersion) {
-        return requestedPromptVersion == null || requestedPromptVersion.isBlank()
-                ? DEFAULT_PROMPT_VERSION
-                : requestedPromptVersion;
-    }
-
     private List<ProbabilityInsightResponse> buildProbabilityAnalysis(
-            AnalysisGenerateRequest request,
+            AuthoritativeAnalysisInput input,
             JsonNode llmOutput) {
-        return request.matches().stream()
+        return input.matches().stream()
                 .map(match -> new ProbabilityInsightResponse(
                         match.matchId(),
                         match.matchDate(),
@@ -185,7 +177,7 @@ public class OpenAiCompatibleAnalysisEngine implements AnalysisEngine {
     }
 
     private List<SimulatedSelectionResponse> buildSimulatedSelections(
-            AnalysisGenerateRequest request,
+            AuthoritativeAnalysisInput input,
             JsonNode llmOutput) {
         List<SimulatedSelectionResponse> selections = new ArrayList<>();
         for (JsonNode ticketGroup : llmOutput.path("ticketGroups")) {
@@ -200,7 +192,7 @@ public class OpenAiCompatibleAnalysisEngine implements AnalysisEngine {
                         matchId,
                         playType,
                         selectedValue,
-                        findOdds(request, matchId, playType, selectedValue),
+                        findOdds(input, matchId, playType, selectedValue),
                         stakeAmount,
                         "Structured LLM selection validated against strategyParameters."));
             }
@@ -219,8 +211,8 @@ public class OpenAiCompatibleAnalysisEngine implements AnalysisEngine {
         return "LLM_SELECTION";
     }
 
-    private BigDecimal findOdds(AnalysisGenerateRequest request, String matchId, String playType, String selection) {
-        return request.markets().stream()
+    private BigDecimal findOdds(AuthoritativeAnalysisInput input, String matchId, String playType, String selection) {
+        return input.markets().stream()
                 .filter(market -> sameMarket(market, matchId, playType, selection))
                 .findFirst()
                 .map(AnalysisMarketRequest::odds)

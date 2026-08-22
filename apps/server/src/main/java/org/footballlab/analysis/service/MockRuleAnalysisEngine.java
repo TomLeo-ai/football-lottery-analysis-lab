@@ -4,7 +4,6 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
 
-import org.footballlab.analysis.domain.AnalysisGenerateRequest;
 import org.footballlab.analysis.domain.AnalysisMarketRequest;
 import org.footballlab.analysis.domain.AnalysisMatchRequest;
 import org.footballlab.analysis.domain.AnalysisReportResponse;
@@ -29,10 +28,10 @@ public class MockRuleAnalysisEngine implements AnalysisEngine {
 
     @Override
     public AnalysisReportResponse generate(AnalysisEngineContext context) {
-        AnalysisGenerateRequest request = context.request();
+        AuthoritativeAnalysisInput input = context.input();
         StrategyParameterRequest strategyParameters = context.strategyParameters();
-        List<ProbabilityInsightResponse> probabilityAnalysis = request.matches().stream()
-                .map(match -> buildProbabilityInsight(match, findMarketForMatch(request, match.matchId())))
+        List<ProbabilityInsightResponse> probabilityAnalysis = input.matches().stream()
+                .map(match -> buildProbabilityInsight(match, findMarketForMatch(input, match.matchId())))
                 .toList();
         List<RiskWarningResponse> riskWarnings = List.of(
                 new RiskWarningResponse(
@@ -43,20 +42,20 @@ public class MockRuleAnalysisEngine implements AnalysisEngine {
                         "DATA_ERROR",
                         "LOW",
                         "当前阶段使用 Mock 规则引擎，分析结果只用于验证数据流。"));
-        List<SimulatedSelectionResponse> simulatedSelections = request.markets().stream()
+        List<SimulatedSelectionResponse> simulatedSelections = input.markets().stream()
                 .map(market -> new SimulatedSelectionResponse(
                         market.matchId(),
                         market.playType(),
                         market.selection(),
                         market.odds(),
-                        calculateStake(strategyParameters.budgetAmount(), request.markets().size()),
+                        calculateStake(strategyParameters.budgetAmount(), input.markets().size()),
                         "模拟选择，用于下一阶段生成模拟方案前的候选项。"))
                 .toList();
 
         return new AnalysisReportResponse(
                 context.reportId(),
-                request.snapshotId(),
-                request.sourceType(),
+                input.snapshotId(),
+                input.sourceType(),
                 ENGINE_MODE,
                 REPORT_STATUS,
                 strategyParameters,
@@ -92,8 +91,8 @@ public class MockRuleAnalysisEngine implements AnalysisEngine {
                 rationale);
     }
 
-    private AnalysisMarketRequest findMarketForMatch(AnalysisGenerateRequest request, String matchId) {
-        return request.markets().stream()
+    private AnalysisMarketRequest findMarketForMatch(AuthoritativeAnalysisInput input, String matchId) {
+        return input.markets().stream()
                 .filter(market -> matchId.equals(market.matchId()))
                 .findFirst()
                 .orElse(null);
