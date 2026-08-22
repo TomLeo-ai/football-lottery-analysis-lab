@@ -1,4 +1,4 @@
-import type { ApiResult } from '@/types/officialLink';
+import type { ApiResult } from '@/types/api';
 import type { StrategyParameters } from '@/types/strategyParameter';
 
 export async function fetchStrategyParameterDefaults(): Promise<StrategyParameters> {

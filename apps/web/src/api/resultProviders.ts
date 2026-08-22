@@ -1,4 +1,4 @@
-import type { ApiResult } from '@/types/officialLink';
+import type { ApiResult } from '@/types/api';
 import type {
   PublicResultProviderStatus,
   PublicResultProviderSyncPayload

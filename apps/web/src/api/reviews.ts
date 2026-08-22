@@ -1,4 +1,4 @@
-import type { ApiResult } from '@/types/officialLink';
+import type { ApiResult } from '@/types/api';
 import type { PendingReviewPlan, ResultMatch, ReviewRecord, ReviewSettlePayload } from '@/types/review';
 
 async function parseResult<T>(response: Response, fallbackMessage: string): Promise<T> {

@@ -67,6 +67,111 @@ export interface UserConfirmedSnapshot {
   matches: ConfirmedMatch[];
   markets: ConfirmedMarket[];
   confirmedAt?: string;
+  workflowId?: string | null;
+  confirmedRevision?: number | null;
+  authorityType?: 'SERVER_CONFIRMED_V2' | null;
+  schemaVersion?: 'CONFIRMED_SNAPSHOT_V2' | 'LEGACY_V1';
+}
+
+export type WorkflowStage =
+  | 'WAITING_LOCAL_OCR'
+  | 'WAITING_USER_CONFIRMATION'
+  | 'CONFIRMED'
+  | 'ABANDONED';
+
+export interface OcrWorkflowAggregate {
+  workflowId: string;
+  currentStage: WorkflowStage;
+  version: number;
+  screenshotTaskId: string | null;
+  currentOcrTaskId: string | null;
+  confirmedSnapshotId: string | null;
+  currentReportId: string | null;
+  currentPlanId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateOcrWorkflowRequest {
+  sourceDeclaration: 'FICTIONAL_SAMPLE' | 'USER_OWNED_AUTHORIZED';
+  sourcePolicyVersion: 'SOURCE_POLICY_V2';
+  contentType: 'image/png' | 'image/jpeg' | 'image/webp';
+  byteSize: number;
+  width: number;
+  height: number;
+}
+
+export interface OcrCandidateBoundingBoxRequest {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface OcrCandidateFieldRequest {
+  fieldId: string;
+  scope: 'MATCH' | 'MARKET';
+  fieldName: 'league' | 'homeTeam' | 'awayTeam' | 'matchDate' | 'kickoffTime' | 'selection' | 'odds';
+  value: string;
+  matchRef?: string;
+  confidence?: number;
+  boundingBox?: OcrCandidateBoundingBoxRequest;
+}
+
+export interface ParseOcrCandidatesRequest {
+  expectedVersion: number;
+  entryMode: 'OCR' | 'MANUAL_BLANK';
+  replaceDraft: boolean;
+  ocrEngine?: string;
+  ocrEngineVersion?: string;
+  languages: string[];
+  processedWidth: number;
+  processedHeight: number;
+  candidateFields: OcrCandidateFieldRequest[];
+}
+
+export interface SaveOcrReviewDraftRequest {
+  expectedRevision: number;
+  riskPreference: RiskPreference;
+  budgetAmount: number;
+  currency: 'CNY';
+  matches: DraftMatchRequest[];
+  markets: DraftMarketRequest[];
+}
+
+export interface DraftMatchRequest {
+  matchId: string;
+  matchDate: string;
+  league: string;
+  homeTeam: string;
+  awayTeam: string;
+  kickoffTime: string;
+}
+
+export interface DraftMarketRequest {
+  marketId: string;
+  matchId: string;
+  playType: PlayType;
+  selection: Selection;
+  odds: number;
+}
+
+export interface OcrReviewDraftResponse {
+  ocrTaskId: string;
+  workflowId: string;
+  revision: number;
+  draftStatus: 'ACTIVE' | 'SUPERSEDED';
+  riskPreference: RiskPreference | null;
+  budgetAmount: number | null;
+  currency: 'CNY' | null;
+  matches: DraftMatchRequest[];
+  markets: DraftMarketRequest[];
+  schemaVersion: 'OCR_REVIEW_DRAFT_V2';
+  updatedAt: string;
+}
+
+export interface ConfirmOcrReviewDraftRequest {
+  expectedRevision: number;
 }
 
 export interface CreateScreenshotTaskPayload {
