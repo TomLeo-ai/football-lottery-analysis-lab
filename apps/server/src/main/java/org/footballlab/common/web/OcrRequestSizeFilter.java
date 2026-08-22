@@ -5,8 +5,11 @@ import java.util.List;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
+import jakarta.servlet.ReadListener;
+import jakarta.servlet.ServletInputStream;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequestWrapper;
 import jakarta.servlet.http.HttpServletResponse;
 
 import org.footballlab.common.Result;
@@ -37,11 +40,22 @@ public class OcrRequestSizeFilter extends OncePerRequestFilter {
             HttpServletResponse response,
             FilterChain filterChain
     ) throws ServletException, IOException {
-        if (isOcrReviewWrite(request) && request.getContentLengthLong() > MAX_OCR_REVIEW_BYTES) {
+        if (!isOcrReviewWrite(request)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+        if (request.getContentLengthLong() > MAX_OCR_REVIEW_BYTES) {
             writeTooLargeResponse(request, response);
             return;
         }
-        filterChain.doFilter(request, response);
+        try {
+            filterChain.doFilter(new SizeLimitedRequestWrapper(request), response);
+        } catch (RequestBodyTooLargeException exception) {
+            if (response.isCommitted()) {
+                throw exception;
+            }
+            writeTooLargeResponse(request, response);
+        }
     }
 
     private boolean isOcrReviewWrite(HttpServletRequest request) {
@@ -69,5 +83,83 @@ public class OcrRequestSizeFilter extends OncePerRequestFilter {
         response.setHeader(TraceIdFilter.TRACE_ID_HEADER, traceId);
         response.setHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE);
         objectMapper.writeValue(response.getWriter(), new Result<>(HttpStatus.PAYLOAD_TOO_LARGE.value(), "error", null, apiError));
+    }
+
+    public static final class RequestBodyTooLargeException extends IOException {
+
+        public RequestBodyTooLargeException() {
+            super("OCR review request body exceeded the 512 KiB limit.");
+        }
+    }
+
+    private static final class SizeLimitedRequestWrapper extends HttpServletRequestWrapper {
+
+        private SizeLimitedRequestWrapper(HttpServletRequest request) {
+            super(request);
+        }
+
+        @Override
+        public ServletInputStream getInputStream() throws IOException {
+            return new LimitedServletInputStream(super.getInputStream());
+        }
+    }
+
+    private static final class LimitedServletInputStream extends ServletInputStream {
+
+        private final ServletInputStream delegate;
+        private long bytesRead;
+
+        private LimitedServletInputStream(ServletInputStream delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public boolean isFinished() {
+            return delegate.isFinished();
+        }
+
+        @Override
+        public boolean isReady() {
+            return delegate.isReady();
+        }
+
+        @Override
+        public void setReadListener(ReadListener readListener) {
+            delegate.setReadListener(readListener);
+        }
+
+        @Override
+        public int read() throws IOException {
+            int value = delegate.read();
+            if (value != -1) {
+                recordBytes(1);
+            }
+            return value;
+        }
+
+        @Override
+        public int read(byte[] bytes, int offset, int length) throws IOException {
+            int count = delegate.read(bytes, offset, length);
+            if (count > 0) {
+                recordBytes(count);
+            }
+            return count;
+        }
+
+        @Override
+        public int readLine(byte[] bytes, int offset, int length) throws IOException {
+            int count = delegate.readLine(bytes, offset, length);
+            if (count > 0) {
+                recordBytes(count);
+            }
+            return count;
+        }
+
+        private void recordBytes(int count) throws RequestBodyTooLargeException {
+            bytesRead += count;
+            if (bytesRead > MAX_OCR_REVIEW_BYTES) {
+                throw new RequestBodyTooLargeException();
+            }
+        }
     }
 }

@@ -67,6 +67,24 @@ class OcrRequestSizeFilterTest {
     }
 
     @Test
+    void rejectsLargeChunkedOrUnknownLengthRequestWhileReading() throws Exception {
+        String body = "\"" + "C".repeat((int) OcrRequestSizeFilter.MAX_OCR_REVIEW_BYTES + 1) + "\"";
+
+        MvcResult result = mockMvc.perform(post("/api/ocr/review-drafts/ocr-task-001")
+                        .header(TraceIdFilter.TRACE_ID_HEADER, TRACE_ID)
+                        .header("Transfer-Encoding", "chunked")
+                        .header("Content-Length", "-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isPayloadTooLarge())
+                .andExpect(jsonPath("$.error.errorCode").value("REQUEST_TOO_LARGE"))
+                .andExpect(jsonPath("$.error.traceId").value(TRACE_ID))
+                .andReturn();
+
+        assertThat(result.getResponse().getContentAsString()).doesNotContain("CCCCCC");
+    }
+
+    @Test
     void allowsSmallRevisionedDraftRequest() throws Exception {
         mockMvc.perform(post("/api/ocr/review-drafts/ocr-task-001")
                         .contentType(MediaType.APPLICATION_JSON)

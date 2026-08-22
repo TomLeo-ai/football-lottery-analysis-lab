@@ -6,6 +6,7 @@ import java.util.Map;
 import jakarta.servlet.http.HttpServletRequest;
 
 import org.footballlab.common.Result;
+import org.footballlab.common.web.OcrRequestSizeFilter;
 import org.footballlab.common.web.TraceIdFilter;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -56,6 +57,16 @@ public class GlobalExceptionHandler {
             HttpMessageNotReadableException exception,
             HttpServletRequest request
     ) {
+        if (findCause(exception, OcrRequestSizeFilter.RequestBodyTooLargeException.class) != null) {
+            return errorResponse(
+                    HttpStatus.PAYLOAD_TOO_LARGE,
+                    "REQUEST_TOO_LARGE",
+                    "OCR review request body must not exceed 512 KiB.",
+                    List.of(),
+                    Map.of(),
+                    request
+            );
+        }
         ApiException apiException = findApiException(exception);
         if (apiException != null) {
             return handleApiException(apiException, request);
@@ -88,10 +99,14 @@ public class GlobalExceptionHandler {
     }
 
     private ApiException findApiException(Throwable throwable) {
+        return findCause(throwable, ApiException.class);
+    }
+
+    private <T extends Throwable> T findCause(Throwable throwable, Class<T> type) {
         Throwable current = throwable;
         while (current != null) {
-            if (current instanceof ApiException apiException) {
-                return apiException;
+            if (type.isInstance(current)) {
+                return type.cast(current);
             }
             current = current.getCause();
         }
