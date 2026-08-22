@@ -52,6 +52,8 @@ public class LlmOutputValidator {
             "resultstatus");
     private static final String REQUIRED_COMPLIANCE_NOTICE =
             "非官方模拟分析结果，仅用于技术研究和流程验证，不构成购彩建议，不承诺命中率、收益或确定性结果。";
+    private static final String WDL_PLAY_TYPE = "WIN_DRAW_LOSS";
+    private static final Set<String> WDL_SELECTIONS = Set.of("HOME_WIN", "DRAW", "AWAY_WIN");
 
     private final ObjectMapper objectMapper;
     private final SafetyGuardService safetyGuardService;
@@ -181,6 +183,7 @@ public class LlmOutputValidator {
             String matchId = selection.path("matchId").asText("");
             String playType = selection.path("playType").asText("");
             String selectedValue = selection.path("selection").asText("");
+            validateWdlSelection(playType, selectedValue);
             if (excludedPlayTypes.contains(playType)) {
                 throw badRequest("EXCLUDED_PLAY_TYPE");
             }
@@ -196,9 +199,19 @@ public class LlmOutputValidator {
             return keys;
         }
         for (AnalysisMarketRequest market : confirmedMarkets) {
+            validateWdlSelection(market.playType(), market.selection());
             keys.add(marketKey(market.matchId(), market.playType(), market.selection()));
         }
         return keys;
+    }
+
+    private void validateWdlSelection(String playType, String selection) {
+        if (!WDL_PLAY_TYPE.equals(playType)) {
+            throw badRequest("UNSUPPORTED_PLAY_TYPE:" + playType);
+        }
+        if (!WDL_SELECTIONS.contains(selection)) {
+            throw badRequest("UNSUPPORTED_SELECTION:" + selection);
+        }
     }
 
     private String marketKey(String matchId, String playType, String selection) {

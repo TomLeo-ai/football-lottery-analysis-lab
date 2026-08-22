@@ -10,6 +10,8 @@ import org.springframework.stereotype.Service;
 @Service
 public class StrategyParameterDefaultsService {
 
+    public static final String V2_DEFAULTS_VERSION = "STRATEGY_DEFAULTS_V2";
+
     private final AtomicReference<StrategyParameterRequest> defaults = new AtomicReference<>(new StrategyParameterRequest(
             BigDecimal.valueOf(20).setScale(2),
             "CNY",
@@ -23,9 +25,9 @@ public class StrategyParameterDefaultsService {
             true,
             BigDecimal.valueOf(2).setScale(2),
             4,
-            List.of("WIN_DRAW_LOSS", "HANDICAP_WIN_DRAW_LOSS"),
+            List.of("WIN_DRAW_LOSS"),
             List.of(),
-            "ENTERTAINMENT_ONLY",
+            "DISABLED",
             null,
             false,
             "BALANCED"));
