@@ -45,6 +45,11 @@ public class WorkflowOperationService {
     }
 
     @Transactional
+    public boolean attachWorkflow(String idempotencyKey, String workflowId, String updatedAt) {
+        return operationRepository.attachWorkflow(idempotencyKey, workflowId, updatedAt);
+    }
+
+    @Transactional
     public boolean completeFailure(String idempotencyKey, String errorCode, int httpStatus, String updatedAt) {
         return operationRepository.completeFailure(idempotencyKey, errorCode, httpStatus, updatedAt);
     }

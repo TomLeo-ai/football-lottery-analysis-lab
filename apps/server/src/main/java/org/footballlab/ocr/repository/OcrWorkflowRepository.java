@@ -10,9 +10,17 @@ public interface OcrWorkflowRepository {
 
     void saveScreenshotTask(ScreenshotTaskResponse screenshotTask);
 
+    void saveWorkflowScreenshotTask(
+            String workflowId,
+            ScreenshotTaskResponse screenshotTask,
+            String sourceDeclaration,
+            String sourcePolicyVersion);
+
     boolean existsScreenshotTask(String taskId);
 
     Optional<ScreenshotTaskResponse> findScreenshotTask(String taskId);
+
+    Optional<ScreenshotTaskResponse> findScreenshotTaskByWorkflowId(String workflowId);
 
     long nextScreenshotSequence();
 
@@ -29,4 +37,6 @@ public interface OcrWorkflowRepository {
     Optional<UserConfirmedSnapshotResponse> findConfirmedSnapshot(String snapshotId);
 
     long nextSnapshotSequence();
+
+    void clearWorkflowPayloads(String workflowId);
 }

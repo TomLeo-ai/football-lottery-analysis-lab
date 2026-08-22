@@ -10,6 +10,8 @@ public interface WorkflowOperationRepository {
 
     void createInProgress(WorkflowOperationRecord operation);
 
+    boolean attachWorkflow(String idempotencyKey, String workflowId, String updatedAt);
+
     boolean completeSuccess(
             String idempotencyKey,
             String resultType,

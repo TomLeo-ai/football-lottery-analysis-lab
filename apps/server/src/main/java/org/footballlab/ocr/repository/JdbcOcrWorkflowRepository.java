@@ -56,6 +56,51 @@ public class JdbcOcrWorkflowRepository implements OcrWorkflowRepository {
     }
 
     @Override
+    public void saveWorkflowScreenshotTask(
+            String workflowId,
+            ScreenshotTaskResponse screenshotTask,
+            String sourceDeclaration,
+            String sourcePolicyVersion
+    ) {
+        jdbcTemplate.update("""
+                        insert into screenshot_task (
+                            task_id,
+                            file_name,
+                            content_type,
+                            file_size,
+                            sample_label,
+                            status,
+                            server_ocr_enabled,
+                            privacy_policy,
+                            created_at,
+                            payload_json,
+                            workflow_id,
+                            source_declaration,
+                            source_policy_version,
+                            authority_type,
+                            provenance_json,
+                            schema_version
+                        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                screenshotTask.taskId(),
+                screenshotTask.fileName(),
+                screenshotTask.contentType(),
+                screenshotTask.fileSize(),
+                screenshotTask.sampleLabel(),
+                screenshotTask.status(),
+                screenshotTask.serverOcrEnabled(),
+                screenshotTask.privacyPolicy(),
+                screenshotTask.createdAt(),
+                toJson(screenshotTask),
+                workflowId,
+                sourceDeclaration,
+                sourcePolicyVersion,
+                "USER_OWNED_AUTHORIZED",
+                "{}",
+                "SCREENSHOT_TASK_V2");
+    }
+
+    @Override
     public boolean existsScreenshotTask(String taskId) {
         Integer count = jdbcTemplate.queryForObject(
                 "select count(*) from screenshot_task where task_id = ?",
@@ -70,6 +115,40 @@ public class JdbcOcrWorkflowRepository implements OcrWorkflowRepository {
                 "select payload_json from screenshot_task where task_id = ?",
                 ScreenshotTaskResponse.class,
                 taskId);
+    }
+
+    @Override
+    public Optional<ScreenshotTaskResponse> findScreenshotTaskByWorkflowId(String workflowId) {
+        try {
+            return Optional.ofNullable(jdbcTemplate.queryForObject("""
+                            select task_id,
+                                   file_name,
+                                   content_type,
+                                   file_size,
+                                   sample_label,
+                                   status,
+                                   server_ocr_enabled,
+                                   privacy_policy,
+                                   created_at
+                            from screenshot_task
+                            where workflow_id = ?
+                            order by created_at asc
+                            limit 1
+                            """,
+                    (resultSet, rowNumber) -> new ScreenshotTaskResponse(
+                            resultSet.getString("task_id"),
+                            resultSet.getString("file_name"),
+                            resultSet.getString("content_type"),
+                            resultSet.getLong("file_size"),
+                            resultSet.getString("sample_label"),
+                            resultSet.getString("status"),
+                            resultSet.getBoolean("server_ocr_enabled"),
+                            resultSet.getString("privacy_policy"),
+                            resultSet.getString("created_at")),
+                    workflowId));
+        } catch (EmptyResultDataAccessException ignored) {
+            return Optional.empty();
+        }
     }
 
     @Override
@@ -170,6 +249,22 @@ public class JdbcOcrWorkflowRepository implements OcrWorkflowRepository {
         return nextSequence(
                 "select snapshot_id from ocr_confirmed_snapshot where snapshot_id like ?",
                 SNAPSHOT_PREFIX);
+    }
+
+    @Override
+    public void clearWorkflowPayloads(String workflowId) {
+        jdbcTemplate.update(
+                "update screenshot_task set payload_json = null where workflow_id = ?",
+                workflowId);
+        jdbcTemplate.update("""
+                        update ocr_task
+                        set raw_text = null,
+                            fields_json = null,
+                            payload_json = null
+                        where workflow_id = ?
+                        """,
+                workflowId);
+        jdbcTemplate.update("delete from ocr_review_draft where workflow_id = ?", workflowId);
     }
 
     private long nextSequence(String sql, String prefix) {
