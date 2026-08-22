@@ -1,11 +1,12 @@
 package org.footballlab.analysis.service;
 
-import org.footballlab.analysis.domain.AnalysisGenerateRequest;
+import org.footballlab.analysis.domain.ResolvedAnalysisEngineConfiguration;
 import org.footballlab.strategy.domain.StrategyParameterRequest;
 
 public record AnalysisEngineContext(
         String reportId,
         String generatedAt,
-        AnalysisGenerateRequest request,
+        AuthoritativeAnalysisInput input,
+        ResolvedAnalysisEngineConfiguration engineConfiguration,
         StrategyParameterRequest strategyParameters) {
 }
