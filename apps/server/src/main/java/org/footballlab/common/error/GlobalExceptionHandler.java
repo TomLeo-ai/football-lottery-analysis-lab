@@ -17,6 +17,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -47,6 +48,24 @@ public class GlobalExceptionHandler {
                 "VALIDATION_FAILED",
                 "Request validation failed.",
                 fieldErrors,
+                Map.of(),
+                request
+        );
+    }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<Result<Object>> handleResponseStatusException(
+            ResponseStatusException exception,
+            HttpServletRequest request
+    ) {
+        HttpStatus status = HttpStatus.resolve(exception.getStatusCode().value());
+        HttpStatus resolvedStatus = status == null ? HttpStatus.INTERNAL_SERVER_ERROR : status;
+        String reason = exception.getReason();
+        return errorResponse(
+                resolvedStatus,
+                "HTTP_" + resolvedStatus.value(),
+                reason == null || reason.isBlank() ? resolvedStatus.getReasonPhrase() : reason,
+                List.of(),
                 Map.of(),
                 request
         );

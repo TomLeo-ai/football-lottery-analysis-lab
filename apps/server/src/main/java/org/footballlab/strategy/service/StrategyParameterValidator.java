@@ -14,11 +14,9 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class StrategyParameterValidator {
 
-    private static final Set<String> RISK_PREFERENCES = Set.of("CONSERVATIVE", "BALANCED", "AGGRESSIVE");
-    private static final Set<String> EXACT_SCORE_POLICIES = Set.of(
-            "DISABLED",
-            "ENTERTAINMENT_ONLY",
-            "ALLOWED_WITH_REASON");
+    private static final String WDL_PLAY_TYPE = "WIN_DRAW_LOSS";
+    private static final Set<String> RISK_PREFERENCES = Set.of("LOW", "CONSERVATIVE", "BALANCED", "AGGRESSIVE");
+    private static final Set<String> EXACT_SCORE_POLICIES = Set.of("DISABLED");
     private static final Set<String> UPSET_COVERAGE_LEVELS = Set.of("NONE", "LIGHT", "BALANCED", "STRONG");
 
     private final StrategyParameterDefaultsService defaultsService;
@@ -103,6 +101,9 @@ public class StrategyParameterValidator {
     }
 
     private void validatePlayTypeLists(StrategyParameterRequest parameters) {
+        if (!List.of(WDL_PLAY_TYPE).equals(parameters.preferredPlayTypes())) {
+            throw badRequest("preferredPlayTypes must be exactly [WIN_DRAW_LOSS].");
+        }
         Set<String> preferred = new HashSet<>(parameters.preferredPlayTypes());
         Set<String> excluded = new HashSet<>(parameters.excludedPlayTypes());
         preferred.retainAll(excluded);

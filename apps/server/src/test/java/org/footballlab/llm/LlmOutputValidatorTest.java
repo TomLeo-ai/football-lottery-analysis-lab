@@ -57,7 +57,7 @@ class LlmOutputValidatorTest {
                         parameters(),
                         confirmedMarkets()))
                 .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("EXCLUDED_PLAY_TYPE");
+                .hasMessageContaining("UNSUPPORTED_PLAY_TYPE");
 
         assertThatThrownBy(() -> validator.validatePredictionOutput(
                         validOutput().replace("\"cost\": 12", "\"cost\": 32"),
@@ -83,6 +83,26 @@ class LlmOutputValidatorTest {
                         confirmedMarkets()))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("INVALID_SELECTION_MARKET");
+    }
+
+    @Test
+    void shouldRejectNonWdlSelectionEvenWhenConfirmedMarketsAreCorrupted() {
+        List<AnalysisMarketRequest> corruptedMarkets = List.of(
+                new AnalysisMarketRequest("market-001", "demo-match-001", "EXACT_SCORE", "HOME_WIN", BigDecimal.valueOf(8.80)));
+
+        assertThatThrownBy(() -> validator.validatePredictionOutput(
+                        validOutput().replace("\"playType\": \"WIN_DRAW_LOSS\"", "\"playType\": \"EXACT_SCORE\""),
+                        parameters(),
+                        corruptedMarkets))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("UNSUPPORTED_PLAY_TYPE");
+
+        assertThatThrownBy(() -> validator.validatePredictionOutput(
+                        validOutput().replace("\"selection\": \"HOME_WIN\"", "\"selection\": \"HOME_DRAW\""),
+                        parameters(),
+                        confirmedMarkets()))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("UNSUPPORTED_SELECTION");
     }
 
     @Test

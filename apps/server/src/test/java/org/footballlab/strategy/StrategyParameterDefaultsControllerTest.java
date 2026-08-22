@@ -30,7 +30,9 @@ class StrategyParameterDefaultsControllerTest {
                 .andExpect(jsonPath("$.data.targetTicketCount").value(5))
                 .andExpect(jsonPath("$.data.riskPreference").value("BALANCED"))
                 .andExpect(jsonPath("$.data.maxParlayLegs").value(4))
-                .andExpect(jsonPath("$.data.exactScorePolicy").value("ENTERTAINMENT_ONLY"));
+                .andExpect(jsonPath("$.data.preferredPlayTypes[0]").value("WIN_DRAW_LOSS"))
+                .andExpect(jsonPath("$.data.excludedPlayTypes").isEmpty())
+                .andExpect(jsonPath("$.data.exactScorePolicy").value("DISABLED"));
     }
 
     @Test
@@ -50,7 +52,7 @@ class StrategyParameterDefaultsControllerTest {
                   "entertainmentTicketMaxCost": 2,
                   "maxParlayLegs": 3,
                   "preferredPlayTypes": ["WIN_DRAW_LOSS"],
-                  "excludedPlayTypes": ["EXACT_SCORE"],
+                  "excludedPlayTypes": [],
                   "exactScorePolicy": "DISABLED",
                   "allowLowReturnTicket": false,
                   "upsetCoverageLevel": "LIGHT"
@@ -63,7 +65,7 @@ class StrategyParameterDefaultsControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.budgetAmount").value(30.0))
                 .andExpect(jsonPath("$.data.targetTicketCount").value(4))
-                .andExpect(jsonPath("$.data.excludedPlayTypes[0]").value("EXACT_SCORE"))
+                .andExpect(jsonPath("$.data.excludedPlayTypes").isEmpty())
                 .andExpect(jsonPath("$.data.exactScorePolicy").value("DISABLED"));
     }
 }

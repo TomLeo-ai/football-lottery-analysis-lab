@@ -30,7 +30,9 @@ class StrategyParameterValidatorTest {
         assertThat(resolved.enableEntertainmentTicket()).isTrue();
         assertThat(resolved.entertainmentTicketMaxCost()).isEqualByComparingTo("2.00");
         assertThat(resolved.maxParlayLegs()).isEqualTo(4);
-        assertThat(resolved.exactScorePolicy()).isEqualTo("ENTERTAINMENT_ONLY");
+        assertThat(resolved.preferredPlayTypes()).containsExactly("WIN_DRAW_LOSS");
+        assertThat(resolved.excludedPlayTypes()).isEmpty();
+        assertThat(resolved.exactScorePolicy()).isEqualTo("DISABLED");
         assertThat(resolved.upsetCoverageLevel()).isEqualTo("BALANCED");
     }
 
@@ -50,7 +52,7 @@ class StrategyParameterValidatorTest {
                 BigDecimal.ONE,
                 3,
                 List.of("WIN_DRAW_LOSS"),
-                List.of("EXACT_SCORE"),
+                List.of(),
                 "DISABLED",
                 null,
                 true,
@@ -63,7 +65,7 @@ class StrategyParameterValidatorTest {
         assertThat(resolved.targetTicketCount()).isEqualTo(4);
         assertThat(resolved.riskPreference()).isEqualTo("AGGRESSIVE");
         assertThat(resolved.enableEntertainmentTicket()).isFalse();
-        assertThat(resolved.excludedPlayTypes()).containsExactly("EXACT_SCORE");
+        assertThat(resolved.excludedPlayTypes()).isEmpty();
     }
 
     @Test
@@ -83,7 +85,7 @@ class StrategyParameterValidatorTest {
                 4,
                 List.of("WIN_DRAW_LOSS"),
                 List.of(),
-                "ENTERTAINMENT_ONLY",
+                "DISABLED",
                 null,
                 false,
                 "BALANCED");
@@ -110,7 +112,7 @@ class StrategyParameterValidatorTest {
                 4,
                 List.of("WIN_DRAW_LOSS"),
                 List.of(),
-                "ENTERTAINMENT_ONLY",
+                "DISABLED",
                 null,
                 false,
                 "BALANCED");
@@ -118,5 +120,59 @@ class StrategyParameterValidatorTest {
         assertThatThrownBy(() -> validator.resolve(request))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("budget ratios");
+    }
+
+    @Test
+    void shouldRejectNonWdlStrategyWrites() {
+        StrategyParameterRequest request = new StrategyParameterRequest(
+                BigDecimal.valueOf(20),
+                "CNY",
+                5,
+                5,
+                6,
+                "BALANCED",
+                BigDecimal.valueOf(0.6),
+                BigDecimal.valueOf(0.3),
+                BigDecimal.valueOf(0.1),
+                true,
+                BigDecimal.valueOf(2),
+                4,
+                List.of("WIN_DRAW_LOSS", "HANDICAP_WIN_DRAW_LOSS"),
+                List.of(),
+                "DISABLED",
+                null,
+                false,
+                "BALANCED");
+
+        assertThatThrownBy(() -> validator.resolve(request))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("preferredPlayTypes");
+    }
+
+    @Test
+    void shouldRejectExactScoreStrategyWrites() {
+        StrategyParameterRequest request = new StrategyParameterRequest(
+                BigDecimal.valueOf(20),
+                "CNY",
+                5,
+                5,
+                6,
+                "BALANCED",
+                BigDecimal.valueOf(0.6),
+                BigDecimal.valueOf(0.3),
+                BigDecimal.valueOf(0.1),
+                true,
+                BigDecimal.valueOf(2),
+                4,
+                List.of("WIN_DRAW_LOSS"),
+                List.of("EXACT_SCORE"),
+                "ENTERTAINMENT_ONLY",
+                null,
+                false,
+                "BALANCED");
+
+        assertThatThrownBy(() -> validator.resolve(request))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("exactScorePolicy");
     }
 }
