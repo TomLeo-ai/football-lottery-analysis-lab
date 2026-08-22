@@ -1,19 +1,21 @@
 package org.footballlab.ocr.controller;
 
 import org.footballlab.common.Result;
+import org.footballlab.common.error.ApiException;
 import org.footballlab.ocr.domain.LocalOcrParseRequest;
 import org.footballlab.ocr.domain.OcrCandidateParseRequest;
 import org.footballlab.ocr.domain.OcrWorkflowCreateRequest;
 import org.footballlab.ocr.domain.OcrWorkflowResponse;
-import org.footballlab.ocr.domain.OcrReviewConfirmRequest;
 import org.footballlab.ocr.domain.OcrTaskResponse;
 import org.footballlab.ocr.domain.ScreenshotTaskCreateRequest;
 import org.footballlab.ocr.domain.ScreenshotTaskResponse;
 import org.footballlab.ocr.domain.UserConfirmedSnapshotResponse;
+import org.footballlab.ocr.service.OcrConfirmationService;
 import org.footballlab.ocr.service.OcrWorkflowService;
 import org.footballlab.ocr.service.OcrWorkflowTransactionService;
 import org.footballlab.ocr.service.OcrWorkflowTransactionService.WorkflowCreateResult;
 import org.footballlab.ocr.service.OcrWorkflowTransactionService.WorkflowOcrResult;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -28,13 +30,16 @@ public class OcrWorkflowController {
 
     private final OcrWorkflowService ocrWorkflowService;
     private final OcrWorkflowTransactionService workflowTransactionService;
+    private final OcrConfirmationService confirmationService;
 
     public OcrWorkflowController(
             OcrWorkflowService ocrWorkflowService,
-            OcrWorkflowTransactionService workflowTransactionService
+            OcrWorkflowTransactionService workflowTransactionService,
+            OcrConfirmationService confirmationService
     ) {
         this.ocrWorkflowService = ocrWorkflowService;
         this.workflowTransactionService = workflowTransactionService;
+        this.confirmationService = confirmationService;
     }
 
     @PostMapping("/api/ocr/workflows")
@@ -84,9 +89,17 @@ public class OcrWorkflowController {
         return Result.success(ocrWorkflowService.parseLocalOcrResult(request));
     }
 
+    @GetMapping("/api/ocr/snapshots/{snapshotId}")
+    public Result<UserConfirmedSnapshotResponse> getSnapshot(@PathVariable String snapshotId) {
+        return Result.success(confirmationService.getSnapshot(snapshotId));
+    }
+
     @PostMapping("/api/ocr/review/confirm")
-    public Result<UserConfirmedSnapshotResponse> confirmReview(@RequestBody OcrReviewConfirmRequest request) {
-        return Result.success(ocrWorkflowService.confirmReview(request));
+    public Result<Void> confirmReviewLegacyTombstone() {
+        throw new ApiException(
+                HttpStatus.GONE,
+                "LEGACY_CONFIRM_ENDPOINT_REMOVED",
+                "Use the revisioned OCR review draft confirmation endpoint.");
     }
 }
 

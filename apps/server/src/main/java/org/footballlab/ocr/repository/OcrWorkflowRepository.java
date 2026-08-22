@@ -34,13 +34,23 @@ public interface OcrWorkflowRepository {
 
     Optional<OcrTaskResponse> findOcrTaskSummary(String ocrTaskId);
 
+    Optional<String> findWorkflowIdByOcrTaskId(String ocrTaskId);
+
     long nextOcrSequence();
 
     void saveConfirmedSnapshot(UserConfirmedSnapshotResponse confirmedSnapshot);
+
+    void saveWorkflowConfirmedSnapshot(
+            String workflowId,
+            long confirmedRevision,
+            UserConfirmedSnapshotResponse confirmedSnapshot,
+            String payloadJson);
 
     Optional<UserConfirmedSnapshotResponse> findConfirmedSnapshot(String snapshotId);
 
     long nextSnapshotSequence();
 
     void clearWorkflowPayloads(String workflowId);
+
+    void clearWorkflowOcrPayloadsAndDrafts(String workflowId);
 }

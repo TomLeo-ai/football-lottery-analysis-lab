@@ -65,7 +65,6 @@ public class OcrRequestSizeFilter extends OncePerRequestFilter {
         }
         String path = request.getRequestURI();
         return path.equals("/api/ocr/parse-local-result")
-                || path.equals("/api/ocr/review/confirm")
                 || path.startsWith("/api/ocr/review-drafts/");
     }
 

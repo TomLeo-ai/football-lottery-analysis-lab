@@ -1,14 +1,23 @@
 package org.footballlab.ocr.domain;
 
-import java.math.BigDecimal;
-import java.util.List;
+import com.fasterxml.jackson.annotation.JsonAnySetter;
+import org.footballlab.common.json.StrictRequestFields;
 
-public record OcrReviewConfirmRequest(
-        String ocrTaskId,
-        String riskPreference,
-        BigDecimal budgetAmount,
-        String currency,
-        List<ConfirmedMatchRequest> matches,
-        List<ConfirmedMarketRequest> markets) {
+public final class OcrReviewConfirmRequest {
+
+    private Long expectedRevision;
+
+    public Long getExpectedRevision() {
+        return expectedRevision;
+    }
+
+    public void setExpectedRevision(Long expectedRevision) {
+        this.expectedRevision = expectedRevision;
+    }
+
+    @JsonAnySetter
+    public void rejectUnknownField(String name, Object value) {
+        StrictRequestFields.reject(name);
+    }
 }
 
