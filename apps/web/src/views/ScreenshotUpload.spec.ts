@@ -566,13 +566,20 @@ describe('ScreenshotUpload', () => {
     expect(workspace.dispose).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the Task 8 transition disabled and exposes no legacy review route', () => {
+  it('keeps review unavailable before local candidates and enables the local review transition after OCR', async () => {
     testHarness.workspaceCreate.mockResolvedValue(createWorkspaceController());
     const { wrapper } = mountPage();
 
-    const continueButton = wrapper.get('[data-testid="continue-review"]');
-    expect(continueButton.attributes('disabled')).toBeDefined();
-    expect(continueButton.text()).toContain('Task 8');
-    expect(wrapper.find('a[href="/ocr-review"]').exists()).toBe(false);
+    expect(wrapper.get('[data-testid="continue-review-unavailable"]').attributes('disabled')).toBeDefined();
+    expect(wrapper.find('[data-testid="continue-review"]').exists()).toBe(false);
+
+    await declareUserOwnedSource(wrapper);
+    await selectFile(wrapper, new File(['safe'], 'review.png', { type: 'image/png' }));
+    await wrapper.get('[data-testid="start-ocr"]').trigger('click');
+    await flushPromises();
+
+    const continueLink = wrapper.get('[data-testid="continue-review"]');
+    expect(continueLink.attributes('href')).toBe('/ocr-review');
+    expect(wrapper.text()).toContain('Observed League 42');
   });
 });

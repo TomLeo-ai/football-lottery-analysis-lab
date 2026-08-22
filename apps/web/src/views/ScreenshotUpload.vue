@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   IMAGE_POLICY,
+  type CandidateBatch,
   type PixelRect,
   type SourceDeclaration,
 } from '@football-lottery-analysis-lab/ocr-core';
@@ -20,7 +21,11 @@ import {
   type ImageWorkspaceSnapshot,
   type ProcessedCanvasResult,
 } from '@/ocr/imageWorkspace';
-import { OcrRunController, OcrRunControllerError } from '@/ocr/ocrRunController';
+import {
+  OcrRunController,
+  OcrRunControllerError,
+  type OcrCandidateDraftSeed,
+} from '@/ocr/ocrRunController';
 import {
   TesseractOcrAdapter,
   type OcrProgressEvent,
@@ -52,6 +57,20 @@ const EMPTY_ACKNOWLEDGEMENTS: SourceAcknowledgements = {
   sensitiveData: false,
   officialMaterial: false,
   humanConfirmation: false,
+};
+
+const MANUAL_BLANK_CANDIDATE_BATCH: CandidateBatch = {
+  schemaVersion: 'OCR_CANDIDATE_V2',
+  processedImage: {
+    schemaVersion: 'IMAGE_TRANSFORM_V1',
+    sourceSize: { width: 1, height: 1 },
+    normalizedSize: { width: 1, height: 1 },
+    rotation: 0,
+    crop: null,
+    redactions: [],
+    processedSize: { width: 1, height: 1 },
+  },
+  fields: [],
 };
 
 const localSession = useLocalOcrSessionStore();
@@ -450,6 +469,17 @@ function retryOcr(): void {
   if (stage.value === 'ERROR' && workspaceController.value !== null) void startOcr();
 }
 
+function createManualBlankResult(): OcrCandidateDraftSeed {
+  return {
+    candidateBatch: MANUAL_BLANK_CANDIDATE_BATCH,
+    draftSeed: {
+      matches: [],
+      markets: [],
+    },
+    meanConfidence: 1,
+  };
+}
+
 async function teardownSelection(nextStage: OcrStage): Promise<void> {
   const detached = invalidateSelection(nextStage);
   await disposeResources(detached);
@@ -461,8 +491,12 @@ async function cancelOcr(): Promise<void> {
 }
 
 async function useManualEntry(): Promise<void> {
-  await teardownSelection('CANCELLED');
-  transitionMessage.value = 'Task 8 提供空白人工录入，当前暂不可继续。';
+  const source = sourceDeclaration.value;
+  if (!sourceValid.value || source === null) return;
+  await teardownSelection('SUCCESS');
+  localSession.setResult(source, createManualBlankResult());
+  meanConfidence.value = null;
+  transitionMessage.value = '已创建空白本地草稿，请继续人工核对。';
 }
 
 onBeforeUnmount(() => {
@@ -566,13 +600,22 @@ onBeforeUnmount(() => {
       <div v-else class="state-panel" role="status">
         <p>尚无结构化候选字段。</p>
       </div>
-      <button
-        type="button"
+      <a
+        v-if="localSession.candidateBatch"
         class="primary-button"
         data-testid="continue-review"
+        href="/ocr-review"
+      >
+        继续人工核对
+      </a>
+      <button
+        v-else
+        type="button"
+        class="primary-button"
+        data-testid="continue-review-unavailable"
         disabled
       >
-        Task 8 前暂不可继续（尚未持久化）
+        等待本地候选
       </button>
     </section>
   </section>
