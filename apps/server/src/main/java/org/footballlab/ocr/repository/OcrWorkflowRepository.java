@@ -26,9 +26,13 @@ public interface OcrWorkflowRepository {
 
     void saveOcrTask(OcrTaskResponse ocrTask);
 
+    void saveWorkflowOcrTask(String workflowId, OcrTaskResponse ocrTask, String candidatePayloadJson);
+
     boolean existsOcrTask(String ocrTaskId);
 
     Optional<OcrTaskResponse> findOcrTask(String ocrTaskId);
+
+    Optional<OcrTaskResponse> findOcrTaskSummary(String ocrTaskId);
 
     long nextOcrSequence();
 
