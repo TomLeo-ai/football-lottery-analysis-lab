@@ -63,6 +63,22 @@ public class JdbcWorkflowOperationRepository implements WorkflowOperationReposit
     }
 
     @Override
+    public boolean attachWorkflow(String idempotencyKey, String workflowId, String updatedAt) {
+        int updatedRows = jdbcTemplate.update("""
+                        update workflow_operation
+                        set workflow_id = ?,
+                            updated_at = ?
+                        where idempotency_key = ?
+                          and operation_status = ?
+                        """,
+                workflowId,
+                updatedAt,
+                idempotencyKey,
+                WorkflowOperationStatus.IN_PROGRESS.name());
+        return updatedRows == 1;
+    }
+
+    @Override
     public boolean completeSuccess(
             String idempotencyKey,
             String resultType,
