@@ -15,6 +15,9 @@ const testHarness = vi.hoisted(() => ({
   adapterDependencies: [] as unknown[],
   adapterRecognize: vi.fn(),
   runController: null as MockRunController | null,
+  createWorkflowWithPendingSession: vi.fn(),
+  parseOcrCandidates: vi.fn(),
+  routerPush: vi.fn(),
 }));
 
 vi.mock('@/ocr/browserImageFile', () => {
@@ -69,6 +72,20 @@ vi.mock('@/ocr/tesseractOcrAdapter', () => ({
     constructor(dependencies: unknown) {
       testHarness.adapterDependencies.push(dependencies);
     }
+  },
+}));
+
+vi.mock('@/workflow/workflowSession', () => ({
+  createWorkflowWithPendingSession: testHarness.createWorkflowWithPendingSession,
+}));
+
+vi.mock('@/api/ocrWorkflow', () => ({
+  parseOcrCandidates: testHarness.parseOcrCandidates,
+}));
+
+vi.mock('@/router', () => ({
+  default: {
+    push: testHarness.routerPush,
   },
 }));
 
@@ -258,15 +275,39 @@ describe('ScreenshotUpload', () => {
       meanConfidence: 0.9,
     });
     testHarness.runController = createRunController();
+    testHarness.createWorkflowWithPendingSession.mockReset();
+    testHarness.createWorkflowWithPendingSession.mockResolvedValue({
+      workflowId: 'workflow-001',
+      currentStage: 'WAITING_LOCAL_OCR',
+      version: 0,
+      screenshotTaskId: 'screenshot-001',
+      currentOcrTaskId: null,
+      confirmedSnapshotId: null,
+      currentReportId: null,
+      currentPlanId: null,
+      createdAt: '2026-08-23T00:00:00Z',
+      updatedAt: '2026-08-23T00:00:00Z',
+    });
+    testHarness.parseOcrCandidates.mockReset();
+    testHarness.parseOcrCandidates.mockResolvedValue({
+      ocrTaskId: 'ocr-001',
+      screenshotTaskId: 'screenshot-001',
+      ocrProvider: 'TESSERACT_BROWSER',
+      status: 'WAITING_USER_CONFIRMATION',
+      analysisAllowed: false,
+      fields: [],
+    });
+    testHarness.routerPush.mockReset();
+    testHarness.routerPush.mockResolvedValue(undefined);
   });
 
   it('contains no legacy HTTP workflow imports or mock provider', () => {
     for (const token of [
-      '@/api/ocrWorkflow',
-      'useOcrWorkflowStore',
       'BROWSER_LOCAL_MOCK',
       'createScreenshotTask',
       'parseLocalOcrResult',
+      '/api/screenshots/tasks',
+      '/api/ocr/parse-local-result',
       'rawText',
       'fileName',
       'Fictional Coastal League',
@@ -307,6 +348,37 @@ describe('ScreenshotUpload', () => {
       onProgress: expect.any(Function),
       onWarning: expect.any(Function),
     }));
+    expect(testHarness.createWorkflowWithPendingSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceDeclaration: 'FICTIONAL_SAMPLE',
+        sourcePolicyVersion: 'SOURCE_POLICY_V2',
+        contentType: 'image/png',
+        width: 320,
+        height: 180,
+      }),
+      expect.any(String),
+    );
+    expect(testHarness.parseOcrCandidates).toHaveBeenCalledWith(
+      'workflow-001',
+      expect.objectContaining({
+        expectedVersion: 0,
+        entryMode: 'OCR',
+        replaceDraft: false,
+        ocrEngine: 'TESSERACT_BROWSER',
+        candidateFields: expect.arrayContaining([
+          expect.objectContaining({
+            scope: 'MATCH',
+            fieldName: 'league',
+            value: 'Observed League 42',
+          }),
+        ]),
+      }),
+      expect.any(String),
+    );
+    expect(testHarness.routerPush).toHaveBeenCalledWith({
+      name: 'WorkflowOcrReview',
+      params: { workflowId: 'workflow-001' },
+    });
     expect(wrapper.text()).toContain('Observed League 42');
     expect(wrapper.text()).toContain('Verifiable Rovers');
     expect(wrapper.text()).not.toContain('private-selection.png');
@@ -579,7 +651,11 @@ describe('ScreenshotUpload', () => {
     await flushPromises();
 
     const continueLink = wrapper.get('[data-testid="continue-review"]');
-    expect(continueLink.attributes('href')).toBe('/ocr-review');
+    expect(continueLink.attributes('href')).toBe('/workflows/workflow-001/ocr-review');
+    expect(testHarness.routerPush).toHaveBeenCalledWith({
+      name: 'WorkflowOcrReview',
+      params: { workflowId: 'workflow-001' },
+    });
     expect(wrapper.text()).toContain('Observed League 42');
   });
 });

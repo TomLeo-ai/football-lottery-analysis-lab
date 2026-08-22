@@ -12,20 +12,38 @@ import {
   updateDraftMatch,
   validateReviewDraft,
 } from '@/review/reviewDraftValidation';
-import type { LocalReviewDraft, LocalReviewDraftMarket, LocalReviewDraftMatch } from '@/types/ocrWorkflow';
-import type { RiskPreference } from '@/types/strategyParameter';
+import type {
+  LocalReviewDraft,
+  LocalReviewDraftMarket,
+  LocalReviewDraftMatch,
+  OcrDraftRiskPreference,
+} from '@/types/ocrWorkflow';
 
 import ReviewMatchCard from './ReviewMatchCard.vue';
 
 const props = defineProps<{
   readonly modelValue: LocalReviewDraft;
+  readonly revision?: number | null;
+  readonly dirty?: boolean;
+  readonly busy?: boolean;
+  readonly statusMessage?: string | null;
+  readonly serverErrors?: readonly string[];
 }>();
 
 const emit = defineEmits<{
   'update:modelValue': [draft: LocalReviewDraft];
+  save: [];
+  confirm: [];
 }>();
 
 const validation = computed(() => validateReviewDraft(props.modelValue));
+const canSave = computed(() => validation.value.issues.length === 0 && props.busy !== true);
+const canConfirm = computed(() => (
+  canSave.value
+  && props.dirty === false
+  && props.revision !== null
+  && props.revision !== undefined
+));
 
 function edit(mutator: (draft: LocalReviewDraft) => void): void {
   const next = cloneLocalReviewDraft(props.modelValue);
@@ -87,8 +105,8 @@ function readBudget(event: Event): number {
   return Number((event.target as HTMLInputElement).value);
 }
 
-function readRisk(event: Event): RiskPreference {
-  return (event.target as HTMLSelectElement).value as RiskPreference;
+function readRisk(event: Event): OcrDraftRiskPreference {
+  return (event.target as HTMLSelectElement).value as OcrDraftRiskPreference;
 }
 </script>
 
@@ -143,7 +161,7 @@ function readRisk(event: Event): RiskPreference {
             data-testid="review-risk"
             @change="updateDraft({ riskPreference: readRisk($event) })"
           >
-            <option value="CONSERVATIVE">CONSERVATIVE</option>
+            <option value="LOW">LOW</option>
             <option value="BALANCED">BALANCED</option>
             <option value="AGGRESSIVE">AGGRESSIVE</option>
           </select>
@@ -199,23 +217,35 @@ function readRisk(event: Event): RiskPreference {
 
     <section class="tool-panel tool-panel--wide" aria-labelledby="local-draft-save-title">
       <h3 id="local-draft-save-title">保存边界</h3>
-      <p>Phase 3 前不会保存或确认；当前只允许在本机页面内编辑。</p>
+      <p>保存草稿只写入最小结构化数据；确认快照只提交当前 revision，不提交比赛/玩法正文。</p>
+      <p v-if="revision !== null && revision !== undefined" class="helper-text">
+        当前服务端草稿 revision：{{ revision }}{{ dirty ? '（有未保存编辑）' : '（已保存）' }}
+      </p>
+      <div v-if="serverErrors && serverErrors.length > 0" class="state-panel state-panel--error" role="alert">
+        <strong>服务端校验反馈</strong>
+        <ul class="check-list">
+          <li v-for="entry in serverErrors" :key="entry">{{ entry }}</li>
+        </ul>
+      </div>
+      <p v-if="statusMessage" class="helper-text" role="status">{{ statusMessage }}</p>
       <div class="ocr-review-actions">
         <button
           type="button"
           class="primary-button"
           data-testid="save-review-draft"
-          disabled
+          :disabled="!canSave"
+          @click="emit('save')"
         >
-          保存草稿暂不可用
+          {{ busy ? '保存中…' : '保存草稿' }}
         </button>
         <button
           type="button"
           class="action-button"
           data-testid="confirm-review-draft"
-          disabled
+          :disabled="!canConfirm"
+          @click="emit('confirm')"
         >
-          确认快照暂不可用
+          确认快照
         </button>
       </div>
     </section>

@@ -6,7 +6,7 @@ import type {
   SourceDeclaration,
 } from '@football-lottery-analysis-lab/ocr-core';
 
-import type { RiskPreference } from './strategyParameter';
+export type OcrDraftRiskPreference = 'LOW' | 'BALANCED' | 'AGGRESSIVE';
 
 export interface ScreenshotTask {
   taskId: string;
@@ -132,7 +132,7 @@ export interface ParseOcrCandidatesRequest {
 
 export interface SaveOcrReviewDraftRequest {
   expectedRevision: number;
-  riskPreference: RiskPreference;
+  riskPreference: OcrDraftRiskPreference;
   budgetAmount: number;
   currency: 'CNY';
   matches: DraftMatchRequest[];
@@ -161,7 +161,7 @@ export interface OcrReviewDraftResponse {
   workflowId: string;
   revision: number;
   draftStatus: 'ACTIVE' | 'SUPERSEDED';
-  riskPreference: RiskPreference | null;
+  riskPreference: OcrDraftRiskPreference | null;
   budgetAmount: number | null;
   currency: 'CNY' | null;
   matches: DraftMatchRequest[];
@@ -224,7 +224,7 @@ export interface LocalReviewDraft {
   analysisAllowed: false;
   budgetAmount: number;
   currency: 'CNY';
-  riskPreference: RiskPreference;
+  riskPreference: OcrDraftRiskPreference;
   candidateBatch: CandidateBatch;
   meanConfidence: number | null;
   matches: LocalReviewDraftMatch[];

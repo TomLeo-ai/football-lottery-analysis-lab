@@ -14,17 +14,18 @@ import type {
   LocalReviewDraft,
   LocalReviewDraftMarket,
   LocalReviewDraftMatch,
+  OcrDraftRiskPreference,
   ReviewDraftIssue,
   ReviewDraftValidationResult,
+  SaveOcrReviewDraftRequest,
 } from '@/types/ocrWorkflow';
-import type { RiskPreference } from '@/types/strategyParameter';
 
 const DEFAULT_BUDGET_AMOUNT = 20;
 const DEFAULT_CURRENCY = 'CNY';
-const DEFAULT_RISK: RiskPreference = 'BALANCED';
+const DEFAULT_RISK: OcrDraftRiskPreference = 'BALANCED';
 const MAX_TEXT_LENGTH = 128;
 const LOW_CONFIDENCE_THRESHOLD = 0.6;
-const VALID_RISKS = new Set<RiskPreference>(['CONSERVATIVE', 'BALANCED', 'AGGRESSIVE']);
+const VALID_RISKS = new Set<OcrDraftRiskPreference>(['LOW', 'BALANCED', 'AGGRESSIVE']);
 const VALID_SELECTIONS = new Set<string>(SELECTIONS);
 const VALID_PLAY_TYPES = new Set<string>(PLAY_TYPES);
 const FORBIDDEN_SERVER_ID_KEYS = new Set(['matchId', 'marketId', 'snapshotId', 'ocrTaskId', 'screenshotTaskId']);
@@ -373,5 +374,32 @@ export function validateReviewDraft(draft: LocalReviewDraft): ReviewDraftValidat
     valid: issues.length === 0,
     issues,
     warnings,
+  };
+}
+
+export function toSaveOcrReviewDraftRequest(
+  draft: LocalReviewDraft,
+  expectedRevision: number,
+): SaveOcrReviewDraftRequest {
+  return {
+    expectedRevision,
+    riskPreference: draft.riskPreference,
+    budgetAmount: draft.budgetAmount,
+    currency: draft.currency,
+    matches: draft.matches.map((match) => ({
+      matchId: match.draftMatchKey,
+      matchDate: match.matchDate,
+      league: match.league.trim(),
+      homeTeam: match.homeTeam.trim(),
+      awayTeam: match.awayTeam.trim(),
+      kickoffTime: match.kickoffTime,
+    })),
+    markets: draft.markets.map((market) => ({
+      marketId: market.draftMarketKey,
+      matchId: market.draftMatchKey,
+      playType: market.playType,
+      selection: market.selection,
+      odds: Number(market.odds),
+    })),
   };
 }

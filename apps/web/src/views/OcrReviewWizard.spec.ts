@@ -249,8 +249,8 @@ describe('OcrReviewWizard', () => {
 
   it('contains no legacy confirm API, hardcoded demo payload, or server id invention', () => {
     for (const token of [
-      '@/api/ocrWorkflow',
-      'confirmOcrReview',
+      'confirmOcrReview(',
+      '/api/ocr/review/confirm',
       'BROWSER_LOCAL_MOCK',
       'demo-match-001',
       'demo-market-001',
@@ -278,7 +278,7 @@ describe('OcrReviewWizard', () => {
     expect(wrapper.text()).toContain('Original League');
     expect(wrapper.text()).toContain('Blue Harbor');
     expect(wrapper.text()).toContain('低置信度证据');
-    expect(wrapper.get('[data-testid="save-review-draft"]').attributes('disabled')).toBeDefined();
+    expect(wrapper.get('[data-testid="save-review-draft"]').attributes('disabled')).toBeUndefined();
     expect(wrapper.get('[data-testid="confirm-review-draft"]').attributes('disabled')).toBeDefined();
 
     await wrapper.get('[data-testid="match-league-0"]').setValue('Edited League');
@@ -291,6 +291,80 @@ describe('OcrReviewWizard', () => {
       .toBe('Edited League');
     expect(wrapper.text()).not.toContain('USER_SCREENSHOT_CONFIRMED');
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('saves the full draft before confirming only the revision', async () => {
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        code: 200,
+        msg: 'success',
+        data: {
+          ocrTaskId: 'ocr-001',
+          workflowId: 'workflow-001',
+          revision: 1,
+          draftStatus: 'ACTIVE',
+          riskPreference: 'BALANCED',
+          budgetAmount: 20,
+          currency: 'CNY',
+          matches: [],
+          markets: [],
+          schemaVersion: 'OCR_REVIEW_DRAFT_V2',
+          updatedAt: '2026-08-22T12:00:00+08:00',
+        },
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        code: 201,
+        msg: 'success',
+        data: {
+          snapshotId: 'snapshot-001',
+          ocrTaskId: 'ocr-001',
+          sourceType: 'USER_SCREENSHOT_CONFIRMED',
+          snapshotStatus: 'CONFIRMED',
+          analysisAllowed: true,
+          riskPreference: 'BALANCED',
+          budgetAmount: 20,
+          currency: 'CNY',
+          matches: [],
+          markets: [],
+          workflowId: 'workflow-001',
+          confirmedRevision: 1,
+          authorityType: 'SERVER_CONFIRMED_V2',
+          schemaVersion: 'CONFIRMED_SNAPSHOT_V2',
+        },
+      }), { status: 201 }));
+    vi.stubGlobal('fetch', fetchSpy);
+    seedLocalSession();
+    const workflowStore = useOcrWorkflowStore();
+    workflowStore.setReviewDraft({
+      ocrTaskId: 'ocr-001',
+      screenshotTaskId: 'screenshot-001',
+      ocrProvider: 'MANUAL_BLANK',
+      status: 'WAITING_USER_CONFIRMATION',
+      analysisAllowed: false,
+      fields: [],
+    });
+
+    const wrapper = mount(OcrReviewWizard, {
+      global: {
+        plugins: [pinia],
+      },
+    });
+    await flushPromises();
+
+    await wrapper.get('[data-testid="save-review-draft"]').trigger('click');
+    await flushPromises();
+    expect(fetchSpy.mock.calls[0][0]).toBe('/api/ocr/review-drafts/ocr-001');
+    expect(JSON.parse(fetchSpy.mock.calls[0][1].body as string)).toMatchObject({
+      expectedRevision: 0,
+      riskPreference: 'BALANCED',
+      currency: 'CNY',
+    });
+
+    await wrapper.get('[data-testid="confirm-review-draft"]').trigger('click');
+    await flushPromises();
+    expect(fetchSpy.mock.calls[1][0]).toBe('/api/ocr/review-drafts/ocr-001/confirm');
+    expect(JSON.parse(fetchSpy.mock.calls[1][1].body as string)).toEqual({ expectedRevision: 1 });
+    expect(workflowStore.confirmedSnapshot?.snapshotId).toBe('snapshot-001');
   });
 
   it('shows a non-persisted empty state on refresh or direct entry', () => {
