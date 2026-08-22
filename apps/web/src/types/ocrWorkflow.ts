@@ -1,3 +1,13 @@
+import type {
+  CandidateBatch,
+  DraftEvidence,
+  PlayType,
+  Selection,
+  SourceDeclaration,
+} from '@football-lottery-analysis-lab/ocr-core';
+
+import type { RiskPreference } from './strategyParameter';
+
 export interface ScreenshotTask {
   taskId: string;
   fileName: string;
@@ -80,5 +90,69 @@ export interface ConfirmOcrReviewPayload {
   currency: string;
   matches: ConfirmedMatch[];
   markets: ConfirmedMarket[];
+}
+
+export type LocalReviewDraftStatus = 'LOCAL_EDITING';
+
+export interface LocalReviewDraftMatch {
+  draftMatchKey: string;
+  matchDate: string;
+  league: string;
+  homeTeam: string;
+  awayTeam: string;
+  kickoffTime: string;
+  evidence: Partial<Record<'matchDate' | 'league' | 'homeTeam' | 'awayTeam' | 'kickoffTime', DraftEvidence>>;
+}
+
+export interface LocalReviewDraftMarket {
+  draftMarketKey: string;
+  draftMatchKey: string;
+  playType: PlayType;
+  selection: Selection;
+  odds: string;
+  evidence: Partial<Record<'matchRef' | 'playType' | 'selection' | 'odds', DraftEvidence>>;
+}
+
+export interface LocalReviewDraft {
+  status: LocalReviewDraftStatus;
+  sourceDeclaration: SourceDeclaration;
+  analysisAllowed: false;
+  budgetAmount: number;
+  currency: 'CNY';
+  riskPreference: RiskPreference;
+  candidateBatch: CandidateBatch;
+  meanConfidence: number | null;
+  matches: LocalReviewDraftMatch[];
+  markets: LocalReviewDraftMarket[];
+}
+
+export type ReviewDraftIssueCode =
+  | 'BUDGET_INVALID'
+  | 'CURRENCY_INVALID'
+  | 'DUPLICATE_DRAFT_KEY'
+  | 'FORMAL_SERVER_ID_FORBIDDEN'
+  | 'KICKOFF_INVALID'
+  | 'MATCH_DATE_INVALID'
+  | 'MARKET_PER_MATCH'
+  | 'MATCH_MARKET_REQUIRED'
+  | 'ODDS_INVALID'
+  | 'ORPHAN_MARKET_MATCH'
+  | 'PLAY_TYPE_INVALID'
+  | 'RISK_INVALID'
+  | 'SELECTION_INVALID'
+  | 'TEAM_REQUIRED'
+  | 'UUID_INVALID'
+  | 'LOW_CONFIDENCE_EVIDENCE';
+
+export interface ReviewDraftIssue {
+  path: string;
+  code: ReviewDraftIssueCode;
+  message: string;
+}
+
+export interface ReviewDraftValidationResult {
+  valid: boolean;
+  issues: ReviewDraftIssue[];
+  warnings: ReviewDraftIssue[];
 }
 

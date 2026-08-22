@@ -8,6 +8,7 @@ playwright-report/
 test-results/
 output/
 *.tsbuildinfo
+apps/web/public/ocr/tesseract/
 
 # Java build output
 target/
