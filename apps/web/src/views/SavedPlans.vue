@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { RouterLink } from 'vue-router';
+import { RouterLink, type RouteLocationRaw } from 'vue-router';
 
 import { listSimulatedPlans, saveSimulatedPlan, simulateStrategy } from '@/api/simulatedPlans';
 import { useAnalysisReportStore } from '@/stores/analysisReport';
+import { useOcrWorkflowStore } from '@/stores/ocrWorkflow';
 import { useSimulatedPlanStore } from '@/stores/simulatedPlan';
 import { toStrategySimulationPayload } from '@/types/simulatedPlan';
 import type { SimulatedPlan } from '@/types/simulatedPlan';
 
 const analysisReportStore = useAnalysisReportStore();
+const workflowStore = useOcrWorkflowStore();
 const simulatedPlanStore = useSimulatedPlanStore();
 const isLoading = ref(false);
 const isSaving = ref(false);
@@ -19,6 +21,11 @@ const report = computed(() => analysisReportStore.currentReport);
 const savedPlans = computed(() => simulatedPlanStore.savedPlans);
 const selectedPlan = computed(() => simulatedPlanStore.currentPlan);
 const generatedPlan = computed(() => simulatedPlanStore.generatedPlan);
+const analysisRoute = computed<RouteLocationRaw>(() => (
+  workflowStore.activeWorkflowId === null
+    ? '/strategy-simulator'
+    : { name: 'WorkflowAnalysis', params: { workflowId: workflowStore.activeWorkflowId } }
+));
 
 onMounted(() => {
   void loadSavedPlans();
@@ -103,7 +110,7 @@ function selectPlan(plan: SimulatedPlan) {
         <strong>缺少分析报告</strong>
         <p>请先完成 AI 分析 Mock，生成 reportStatus 为 GENERATED 的报告。</p>
       </div>
-      <RouterLink class="external-link" to="/strategy-simulator">返回 AI 分析</RouterLink>
+      <RouterLink class="external-link" :to="analysisRoute">返回 AI 分析</RouterLink>
     </div>
 
     <template v-else>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
-import { RouterLink } from 'vue-router';
+import { RouterLink, type RouteLocationRaw } from 'vue-router';
 
 import { generateAnalysis } from '@/api/analysis';
 import { fetchEngineSettings, fetchModelProviders } from '@/api/modelProviders';
@@ -62,6 +62,11 @@ const strategyParameters = reactive<StrategyParameters>({ ...fallbackStrategyPar
 
 const confirmedSnapshot = computed(() => ocrWorkflowStore.confirmedSnapshot);
 const report = computed(() => analysisReportStore.currentReport);
+const reviewRoute = computed<RouteLocationRaw>(() => (
+  ocrWorkflowStore.activeWorkflowId === null
+    ? '/ocr-review'
+    : { name: 'WorkflowOcrReview', params: { workflowId: ocrWorkflowStore.activeWorkflowId } }
+));
 const effectiveReportParameters = computed(() => report.value?.strategyParameters ?? null);
 const selectedProvider = computed<ModelProvider | null>(
   () => providers.value.find((provider) => provider.providerKey === selectedProviderKey.value) ?? null
@@ -255,7 +260,7 @@ async function handleGenerateAnalysis() {
         <strong>缺少已确认快照</strong>
         <p>请先完成 OCR 人工确认，生成 USER_SCREENSHOT_CONFIRMED 快照后再进入分析。</p>
       </div>
-      <RouterLink class="external-link" to="/ocr-review">返回人工确认</RouterLink>
+      <RouterLink class="external-link" :to="reviewRoute">返回人工确认</RouterLink>
     </div>
 
     <template v-else>
