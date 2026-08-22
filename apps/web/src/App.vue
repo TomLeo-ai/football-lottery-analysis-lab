@@ -1,3 +1,18 @@
+<script setup lang="ts">
+import { computed } from 'vue';
+
+import { useOcrWorkflowStore } from '@/stores/ocrWorkflow';
+
+const workflowStore = useOcrWorkflowStore();
+const activeWorkflowId = computed(() => workflowStore.activeWorkflowId);
+
+function workflowRoute(targetName: string, fallback: string) {
+  return activeWorkflowId.value === null
+    ? fallback
+    : { name: targetName, params: { workflowId: activeWorkflowId.value } };
+}
+</script>
+
 <template>
   <RouterView v-if="$route.path === '/'" />
 
@@ -15,10 +30,10 @@
         <RouterLink to="/dashboard">仪表盘</RouterLink>
         <RouterLink to="/official-source-hub">官方外链入口</RouterLink>
         <RouterLink to="/screenshot-upload">截图 OCR</RouterLink>
-        <RouterLink to="/ocr-review">人工确认</RouterLink>
-        <RouterLink to="/strategy-simulator">AI 分析</RouterLink>
-        <RouterLink class="app-sidebar__nav-extra" to="/match-workspace">比赛工作台</RouterLink>
-        <RouterLink class="app-sidebar__nav-extra" to="/saved-plans">模拟方案</RouterLink>
+        <RouterLink :to="workflowRoute('WorkflowOcrReview', '/ocr-review')">人工确认</RouterLink>
+        <RouterLink :to="workflowRoute('WorkflowAnalysis', '/strategy-simulator')">AI 分析</RouterLink>
+        <RouterLink class="app-sidebar__nav-extra" :to="workflowRoute('WorkflowMatchWorkspace', '/match-workspace')">比赛工作台</RouterLink>
+        <RouterLink class="app-sidebar__nav-extra" :to="workflowRoute('WorkflowPlans', '/saved-plans')">模拟方案</RouterLink>
         <RouterLink class="app-sidebar__nav-extra" to="/review-center">复盘中心</RouterLink>
         <RouterLink class="app-sidebar__nav-extra" to="/strategy-lab">策略实验室</RouterLink>
         <RouterLink class="app-sidebar__nav-extra" to="/model-settings">模型设置</RouterLink>

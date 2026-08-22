@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { RouterLink } from 'vue-router';
+import { RouterLink, type RouteLocationRaw } from 'vue-router';
 
 import { useAnalysisReportStore } from '@/stores/analysisReport';
 import { useOcrWorkflowStore } from '@/stores/ocrWorkflow';
@@ -12,29 +12,35 @@ const analysisReportStore = useAnalysisReportStore();
 const simulatedPlanStore = useSimulatedPlanStore();
 const resultProviderStore = useResultProviderStore();
 
+function workflowRoute(targetName: string, fallback: string): RouteLocationRaw {
+  return ocrWorkflowStore.activeWorkflowId === null
+    ? fallback
+    : { name: targetName, params: { workflowId: ocrWorkflowStore.activeWorkflowId } };
+}
+
 const dashboardRows = computed(() => [
   {
     name: '截图 OCR',
-    status: ocrWorkflowStore.reviewDraft ? ocrWorkflowStore.reviewDraft.status : 'WAITING_INPUT',
+    status: ocrWorkflowStore.workflow?.currentStage ?? (ocrWorkflowStore.reviewDraft ? ocrWorkflowStore.reviewDraft.status : 'WAITING_INPUT'),
     path: '/screenshot-upload',
     next: '上传虚构截图并生成待确认字段'
   },
   {
     name: '人工确认',
     status: ocrWorkflowStore.confirmedSnapshot?.snapshotStatus ?? 'WAITING_USER_CONFIRMATION',
-    path: '/ocr-review',
+    path: workflowRoute('WorkflowOcrReview', '/ocr-review'),
     next: '确认 USER_SCREENSHOT_CONFIRMED 快照'
   },
   {
     name: 'AI 分析',
     status: analysisReportStore.currentReport?.reportStatus ?? 'WAITING_CONFIRMED_SNAPSHOT',
-    path: '/strategy-simulator',
+    path: workflowRoute('WorkflowAnalysis', '/strategy-simulator'),
     next: '生成 Mock 规则引擎分析报告'
   },
   {
     name: '模拟方案',
     status: simulatedPlanStore.currentPlan?.planStatus ?? 'WAITING_ANALYSIS_REPORT',
-    path: '/saved-plans',
+    path: workflowRoute('WorkflowPlans', '/saved-plans'),
     next: '保存为 PENDING_RESULT 模拟方案'
   },
   {
@@ -90,7 +96,7 @@ const dashboardRows = computed(() => [
       <section class="tool-panel" aria-labelledby="dashboard-links-title">
         <h3 id="dashboard-links-title">快速入口</h3>
         <RouterLink class="external-link" to="/official-source-hub">查看官方外链入口</RouterLink>
-        <RouterLink class="external-link" to="/match-workspace">打开比赛工作台</RouterLink>
+        <RouterLink class="external-link" :to="workflowRoute('WorkflowMatchWorkspace', '/match-workspace')">打开比赛工作台</RouterLink>
         <RouterLink class="external-link" to="/about-compliance">查看合规说明</RouterLink>
       </section>
     </div>

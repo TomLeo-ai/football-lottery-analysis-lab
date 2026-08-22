@@ -1,11 +1,23 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { RouterLink } from 'vue-router';
+import { RouterLink, type RouteLocationRaw } from 'vue-router';
 
 import { useOcrWorkflowStore } from '@/stores/ocrWorkflow';
 
 const workflowStore = useOcrWorkflowStore();
 const confirmedSnapshot = computed(() => workflowStore.confirmedSnapshot);
+
+const reviewRoute = computed<RouteLocationRaw>(() => (
+  workflowStore.activeWorkflowId === null
+    ? '/ocr-review'
+    : { name: 'WorkflowOcrReview', params: { workflowId: workflowStore.activeWorkflowId } }
+));
+
+const analysisRoute = computed<RouteLocationRaw>(() => (
+  workflowStore.activeWorkflowId === null
+    ? '/strategy-simulator'
+    : { name: 'WorkflowAnalysis', params: { workflowId: workflowStore.activeWorkflowId } }
+));
 </script>
 
 <template>
@@ -31,7 +43,7 @@ const confirmedSnapshot = computed(() => workflowStore.confirmedSnapshot);
         <strong>暂无已确认快照</strong>
         <p>请先完成虚构截图 OCR 和人工确认。</p>
       </div>
-      <RouterLink class="external-link" to="/ocr-review">进入人工确认</RouterLink>
+      <RouterLink class="external-link" :to="reviewRoute">进入人工确认</RouterLink>
     </div>
 
     <template v-else>
@@ -61,7 +73,7 @@ const confirmedSnapshot = computed(() => workflowStore.confirmedSnapshot);
         <section class="tool-panel" aria-labelledby="workspace-action-title">
           <h3 id="workspace-action-title">后续动作</h3>
           <p class="helper-text">确认输入无误后，可进入 Mock 规则引擎分析。</p>
-          <RouterLink class="external-link" to="/strategy-simulator">进入 AI 分析</RouterLink>
+          <RouterLink class="external-link" :to="analysisRoute">进入 AI 分析</RouterLink>
         </section>
       </div>
 
