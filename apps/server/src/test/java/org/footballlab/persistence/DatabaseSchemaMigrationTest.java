@@ -30,7 +30,10 @@ class DatabaseSchemaMigrationTest {
             "simulated_plan_item",
             "public_result_snapshot",
             "review_record",
-            "llm_invocation_audit");
+            "llm_invocation_audit",
+            "ocr_workflow",
+            "workflow_operation",
+            "ocr_review_draft");
 
     @Autowired
     private ApplicationContext applicationContext;
@@ -56,13 +59,77 @@ class DatabaseSchemaMigrationTest {
                             "plan_status",
                             "report_id",
                             "snapshot_id",
+                            "workflow_id",
                             "budget_amount",
+                            "authority_type",
+                            "provenance_json",
                             "strategy_parameters_json",
                             "created_at");
+            assertThat(readColumnNames(connection, "screenshot_task"))
+                    .contains(
+                            "workflow_id",
+                            "source_declaration",
+                            "source_policy_version",
+                            "authority_type",
+                            "provenance_json",
+                            "schema_version");
+            assertThat(readColumnNames(connection, "ocr_task"))
+                    .contains(
+                            "workflow_id",
+                            "candidate_schema_version",
+                            "authority_type",
+                            "provenance_json");
+            assertThat(readColumnNames(connection, "ocr_confirmed_snapshot"))
+                    .contains(
+                            "workflow_id",
+                            "confirmed_revision",
+                            "authority_type",
+                            "provenance_json",
+                            "schema_version");
+            assertThat(readColumnNames(connection, "ocr_workflow"))
+                    .contains(
+                            "workflow_id",
+                            "current_stage",
+                            "version",
+                            "current_ocr_task_id",
+                            "confirmed_snapshot_id",
+                            "current_report_id",
+                            "current_plan_id",
+                            "active_operation_type",
+                            "active_operation_key",
+                            "created_at",
+                            "updated_at");
+            assertThat(readColumnNames(connection, "workflow_operation"))
+                    .contains(
+                            "idempotency_key",
+                            "workflow_id",
+                            "operation_type",
+                            "request_sha256",
+                            "operation_status",
+                            "result_type",
+                            "result_id",
+                            "error_code",
+                            "http_status",
+                            "created_at",
+                            "updated_at");
+            assertThat(readColumnNames(connection, "ocr_review_draft"))
+                    .contains(
+                            "ocr_task_id",
+                            "workflow_id",
+                            "revision",
+                            "draft_status",
+                            "matches_json",
+                            "markets_json",
+                            "schema_version",
+                            "updated_at");
             assertThat(readColumnNames(connection, "simulated_plan_item"))
                     .contains("plan_item_id", "plan_id", "match_id", "play_type", "selection", "stake_amount");
             assertThat(readColumnNames(connection, "analysis_report"))
                     .contains(
+                            "workflow_id",
+                            "authority_type",
+                            "provenance_json",
+                            "schema_version",
                             "provider_key",
                             "model_id",
                             "prompt_version",
