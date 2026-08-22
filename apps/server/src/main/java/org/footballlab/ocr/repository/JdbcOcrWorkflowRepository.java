@@ -4,7 +4,9 @@ import java.util.List;
 import java.util.Optional;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.footballlab.ocr.domain.OcrExtractedFieldResponse;
 import org.footballlab.ocr.domain.OcrTaskResponse;
 import org.footballlab.ocr.domain.ScreenshotTaskResponse;
 import org.footballlab.ocr.domain.UserConfirmedSnapshotResponse;
@@ -183,6 +185,36 @@ public class JdbcOcrWorkflowRepository implements OcrWorkflowRepository {
     }
 
     @Override
+    public void saveWorkflowOcrTask(String workflowId, OcrTaskResponse ocrTask, String candidatePayloadJson) {
+        jdbcTemplate.update("""
+                        insert into ocr_task (
+                            ocr_task_id,
+                            screenshot_task_id,
+                            ocr_provider,
+                            raw_text,
+                            status,
+                            analysis_allowed,
+                            fields_json,
+                            payload_json,
+                            parsed_at,
+                            workflow_id,
+                            candidate_schema_version,
+                            authority_type,
+                            provenance_json
+                        ) values (?, ?, ?, null, ?, ?, ?, ?, ?, ?, 'OCR_CANDIDATE_V2', 'USER_SCREENSHOT_CONFIRMED', '{}')
+                        """,
+                ocrTask.ocrTaskId(),
+                ocrTask.screenshotTaskId(),
+                ocrTask.ocrProvider(),
+                ocrTask.status(),
+                ocrTask.analysisAllowed(),
+                toJson(ocrTask.fields()),
+                candidatePayloadJson,
+                ocrTask.parsedAt(),
+                workflowId);
+    }
+
+    @Override
     public boolean existsOcrTask(String ocrTaskId) {
         Integer count = jdbcTemplate.queryForObject(
                 "select count(*) from ocr_task where ocr_task_id = ?",
@@ -197,6 +229,36 @@ public class JdbcOcrWorkflowRepository implements OcrWorkflowRepository {
                 "select payload_json from ocr_task where ocr_task_id = ?",
                 OcrTaskResponse.class,
                 ocrTaskId);
+    }
+
+    @Override
+    public Optional<OcrTaskResponse> findOcrTaskSummary(String ocrTaskId) {
+        try {
+            return Optional.ofNullable(jdbcTemplate.queryForObject("""
+                            select ocr_task_id,
+                                   screenshot_task_id,
+                                   ocr_provider,
+                                   raw_text,
+                                   status,
+                                   analysis_allowed,
+                                   fields_json,
+                                   parsed_at
+                            from ocr_task
+                            where ocr_task_id = ?
+                            """,
+                    (resultSet, rowNumber) -> new OcrTaskResponse(
+                            resultSet.getString("ocr_task_id"),
+                            resultSet.getString("screenshot_task_id"),
+                            resultSet.getString("ocr_provider"),
+                            resultSet.getString("raw_text"),
+                            resultSet.getString("status"),
+                            resultSet.getBoolean("analysis_allowed"),
+                            fromJsonList(resultSet.getString("fields_json")),
+                            resultSet.getString("parsed_at")),
+                    ocrTaskId));
+        } catch (EmptyResultDataAccessException ignored) {
+            return Optional.empty();
+        }
     }
 
     @Override
@@ -310,6 +372,18 @@ public class JdbcOcrWorkflowRepository implements OcrWorkflowRepository {
             return objectMapper.readValue(value, type);
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("Failed to deserialize OCR workflow payload.", exception);
+        }
+    }
+
+    private List<OcrExtractedFieldResponse> fromJsonList(String value) {
+        if (value == null || value.isBlank()) {
+            return List.of();
+        }
+        try {
+            return objectMapper.readValue(value, new TypeReference<>() {
+            });
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("Failed to deserialize OCR fields payload.", exception);
         }
     }
 }

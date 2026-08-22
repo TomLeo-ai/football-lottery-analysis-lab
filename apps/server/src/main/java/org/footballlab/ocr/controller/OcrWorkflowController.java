@@ -2,6 +2,7 @@ package org.footballlab.ocr.controller;
 
 import org.footballlab.common.Result;
 import org.footballlab.ocr.domain.LocalOcrParseRequest;
+import org.footballlab.ocr.domain.OcrCandidateParseRequest;
 import org.footballlab.ocr.domain.OcrWorkflowCreateRequest;
 import org.footballlab.ocr.domain.OcrWorkflowResponse;
 import org.footballlab.ocr.domain.OcrReviewConfirmRequest;
@@ -12,6 +13,7 @@ import org.footballlab.ocr.domain.UserConfirmedSnapshotResponse;
 import org.footballlab.ocr.service.OcrWorkflowService;
 import org.footballlab.ocr.service.OcrWorkflowTransactionService;
 import org.footballlab.ocr.service.OcrWorkflowTransactionService.WorkflowCreateResult;
+import org.footballlab.ocr.service.OcrWorkflowTransactionService.WorkflowOcrResult;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -49,6 +51,18 @@ public class OcrWorkflowController {
     @GetMapping("/api/ocr/workflows/{workflowId}")
     public Result<OcrWorkflowResponse> getWorkflow(@PathVariable String workflowId) {
         return Result.success(workflowTransactionService.getWorkflow(workflowId));
+    }
+
+    @PostMapping("/api/ocr/workflows/{workflowId}/ocr-candidates")
+    public ResponseEntity<Result<OcrTaskResponse>> parseOcrCandidates(
+            @PathVariable String workflowId,
+            @RequestHeader(value = OcrWorkflowTransactionService.IDEMPOTENCY_KEY_HEADER, required = false) String idempotencyKey,
+            @RequestBody OcrCandidateParseRequest request
+    ) {
+        WorkflowOcrResult result = workflowTransactionService.parseOcrCandidates(workflowId, request, idempotencyKey);
+        return ResponseEntity
+                .status(result.httpStatus())
+                .body(Result.success(result.httpStatus().value(), result.ocrTask()));
     }
 
     @DeleteMapping("/api/ocr/workflows/{workflowId}")
