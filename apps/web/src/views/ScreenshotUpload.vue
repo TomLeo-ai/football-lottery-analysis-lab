@@ -7,6 +7,7 @@ import {
 } from '@football-lottery-analysis-lab/ocr-core';
 import { computed, onBeforeUnmount, ref, shallowRef } from 'vue';
 
+import { parseOcrCandidates } from '@/api/ocrWorkflow';
 import ImageWorkspace from '@/components/ocr/ImageWorkspace.vue';
 import OcrRunPanel from '@/components/ocr/OcrRunPanel.vue';
 import SourceDeclarationPanel from '@/components/ocr/SourceDeclarationPanel.vue';
@@ -31,7 +32,15 @@ import {
   type OcrProgressEvent,
   type OcrWarning,
 } from '@/ocr/tesseractOcrAdapter';
+import router from '@/router';
 import { useLocalOcrSessionStore } from '@/stores/localOcrSession';
+import { useOcrWorkflowStore } from '@/stores/ocrWorkflow';
+import { createWorkflowWithPendingSession } from '@/workflow/workflowSession';
+import type {
+  CreateOcrWorkflowRequest,
+  OcrCandidateFieldRequest,
+  ParseOcrCandidatesRequest,
+} from '@/types/ocrWorkflow';
 
 interface SourceAcknowledgements {
   readonly sensitiveData: boolean;
@@ -74,6 +83,7 @@ const MANUAL_BLANK_CANDIDATE_BATCH: CandidateBatch = {
 };
 
 const localSession = useLocalOcrSessionStore();
+const workflowStore = useOcrWorkflowStore();
 const sourceDeclaration = ref<SourceDeclaration | null>(null);
 const acknowledgements = ref<SourceAcknowledgements>({ ...EMPTY_ACKNOWLEDGEMENTS });
 const selectedFile = shallowRef<File | null>(null);
@@ -88,6 +98,8 @@ const cacheWarning = ref<string | null>(null);
 const errorMessage = ref<string | null>(null);
 const transitionMessage = ref<string | null>(null);
 const isPreparing = ref(false);
+const isPersisting = ref(false);
+const currentWorkflowId = ref<string | null>(null);
 let selectionToken = 0;
 let runToken = 0;
 
@@ -108,7 +120,7 @@ const runBusy = computed(() => (
 ));
 
 const runDisabled = computed(() => (
-  !sourceValid.value || workspaceSnapshot.value === null || isPreparing.value
+  !sourceValid.value || workspaceSnapshot.value === null || isPreparing.value || isPersisting.value
 ));
 
 function detachResources(): DetachedResources {
@@ -124,6 +136,7 @@ function detachResources(): DetachedResources {
   imageHeader.value = null;
   meanConfidence.value = null;
   cacheWarning.value = null;
+  currentWorkflowId.value = null;
   return detached;
 }
 
@@ -452,7 +465,17 @@ async function startOcr(): Promise<void> {
     runController.value = controller;
     const result = await controller.run(processed);
     if (!isRunCurrent(selection, attempt, controller)) return;
-    localSession.setResult(source, result);
+    const header = imageHeader.value;
+    const file = selectedFile.value;
+    try {
+      await persistAndOpenReview(source, result, 'OCR', header, file);
+    } catch {
+      if (!isRunCurrent(selection, attempt, controller)) return;
+      errorMessage.value = '无法保存 OCR 工作流，请重试。';
+      stage.value = 'ERROR';
+      return;
+    }
+    if (!isRunCurrent(selection, attempt, controller)) return;
     meanConfidence.value = result.meanConfidence;
     progress.value = 100;
     stage.value = 'SUCCESS';
@@ -480,6 +503,109 @@ function createManualBlankResult(): OcrCandidateDraftSeed {
   };
 }
 
+function createIdempotencyKey(): string {
+  return globalThis.crypto.randomUUID();
+}
+
+function supportedContentType(value: string | undefined): CreateOcrWorkflowRequest['contentType'] {
+  if (value === 'image/jpeg' || value === 'image/webp') return value;
+  return 'image/png';
+}
+
+function createWorkflowRequest(
+  header: ImageHeader | null,
+  file: File | null,
+): CreateOcrWorkflowRequest {
+  return {
+    sourceDeclaration: 'FICTIONAL_SAMPLE',
+    sourcePolicyVersion: 'SOURCE_POLICY_V2',
+    contentType: supportedContentType(header?.mimeType ?? file?.type),
+    byteSize: file?.size ?? 1,
+    width: header?.width ?? 1,
+    height: header?.height ?? 1,
+  };
+}
+
+function candidateFieldsForServer(batch: CandidateBatch): OcrCandidateFieldRequest[] {
+  const marketRefs = new Map<string, string>();
+  for (const field of batch.fields) {
+    if (field.entityType === 'MARKET' && field.fieldName === 'matchRef') {
+      marketRefs.set(field.entityKey, field.fieldValue);
+    }
+  }
+  return batch.fields.flatMap((field): OcrCandidateFieldRequest[] => {
+    if (field.fieldName === 'matchRef' || field.fieldName === 'playType') return [];
+    const matchRef = field.entityType === 'MARKET' ? marketRefs.get(field.entityKey) : undefined;
+    if (field.entityType === 'MARKET' && matchRef === undefined) return [];
+    return [{
+      fieldId: field.fieldId,
+      scope: field.entityType,
+      fieldName: field.fieldName,
+      value: field.fieldValue,
+      ...(field.entityType === 'MARKET' ? { matchRef } : {}),
+      confidence: field.confidence,
+      ...(field.boundingBox === undefined ? {} : {
+        boundingBox: {
+          x: field.boundingBox.x,
+          y: field.boundingBox.y,
+          width: field.boundingBox.width,
+          height: field.boundingBox.height,
+        },
+      }),
+    }];
+  });
+}
+
+function parseRequestForServer(
+  result: OcrCandidateDraftSeed,
+  entryMode: ParseOcrCandidatesRequest['entryMode'],
+): ParseOcrCandidatesRequest {
+  return {
+    expectedVersion: 0,
+    entryMode,
+    replaceDraft: false,
+    ...(entryMode === 'OCR' ? {
+      ocrEngine: 'TESSERACT_BROWSER',
+      ocrEngineVersion: '7.0.0',
+    } : {}),
+    languages: entryMode === 'OCR' ? ['eng', 'chi_sim'] : [],
+    processedWidth: result.candidateBatch.processedImage.processedSize.width,
+    processedHeight: result.candidateBatch.processedImage.processedSize.height,
+    candidateFields: entryMode === 'OCR' ? candidateFieldsForServer(result.candidateBatch) : [],
+  };
+}
+
+async function persistAndOpenReview(
+  source: SourceDeclaration,
+  result: OcrCandidateDraftSeed,
+  entryMode: ParseOcrCandidatesRequest['entryMode'],
+  header: ImageHeader | null,
+  file: File | null,
+): Promise<string> {
+  isPersisting.value = true;
+  try {
+    const workflow = await createWorkflowWithPendingSession(
+      createWorkflowRequest(header, file),
+      createIdempotencyKey(),
+    );
+    const ocrTask = await parseOcrCandidates(
+      workflow.workflowId,
+      parseRequestForServer(result, entryMode),
+      createIdempotencyKey(),
+    );
+    workflowStore.setReviewDraft(ocrTask);
+    localSession.setResult(source, result);
+    currentWorkflowId.value = workflow.workflowId;
+    await router.push({
+      name: 'WorkflowOcrReview',
+      params: { workflowId: workflow.workflowId },
+    });
+    return workflow.workflowId;
+  } finally {
+    isPersisting.value = false;
+  }
+}
+
 async function teardownSelection(nextStage: OcrStage): Promise<void> {
   const detached = invalidateSelection(nextStage);
   await disposeResources(detached);
@@ -493,8 +619,20 @@ async function cancelOcr(): Promise<void> {
 async function useManualEntry(): Promise<void> {
   const source = sourceDeclaration.value;
   if (!sourceValid.value || source === null) return;
+  const header = imageHeader.value;
+  const file = selectedFile.value;
+  const result = createManualBlankResult();
+  let workflowId: string;
+  try {
+    workflowId = await persistAndOpenReview(source, result, 'MANUAL_BLANK', header, file);
+  } catch {
+    errorMessage.value = '无法保存 OCR 工作流，请重试。';
+    stage.value = 'ERROR';
+    return;
+  }
   await teardownSelection('SUCCESS');
-  localSession.setResult(source, createManualBlankResult());
+  localSession.setResult(source, result);
+  currentWorkflowId.value = workflowId;
   meanConfidence.value = null;
   transitionMessage.value = '已创建空白本地草稿，请继续人工核对。';
 }
@@ -604,7 +742,7 @@ onBeforeUnmount(() => {
         v-if="localSession.candidateBatch"
         class="primary-button"
         data-testid="continue-review"
-        href="/ocr-review"
+        :href="currentWorkflowId === null ? '/ocr-review' : `/workflows/${currentWorkflowId}/ocr-review`"
       >
         继续人工核对
       </a>

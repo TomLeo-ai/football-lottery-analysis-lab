@@ -42,6 +42,11 @@ const router = createRouter({
       component: OcrReviewWizard
     },
     {
+      path: '/workflows/:workflowId/ocr-review',
+      name: 'WorkflowOcrReview',
+      component: OcrReviewWizard
+    },
+    {
       path: '/match-workspace',
       name: 'MatchWorkspace',
       component: MatchWorkspace
