@@ -102,6 +102,7 @@ const isPersisting = ref(false);
 const currentWorkflowId = ref<string | null>(null);
 let selectionToken = 0;
 let runToken = 0;
+let preserveReviewDraftOnUnmount = false;
 
 const sourceValid = computed(() => {
   if (sourceDeclaration.value === null) return false;
@@ -123,12 +124,12 @@ const runDisabled = computed(() => (
   !sourceValid.value || workspaceSnapshot.value === null || isPreparing.value || isPersisting.value
 ));
 
-function detachResources(): DetachedResources {
+function detachResources({ preserveLocalSession = false } = {}): DetachedResources {
   const detached = {
     run: runController.value,
     workspace: workspaceController.value,
   };
-  localSession.clear();
+  if (!preserveLocalSession) localSession.clear();
   runController.value = null;
   workspaceController.value = null;
   workspaceSnapshot.value = null;
@@ -140,10 +141,13 @@ function detachResources(): DetachedResources {
   return detached;
 }
 
-function invalidateSelection(nextStage: OcrStage): DetachedResources {
+function invalidateSelection(
+  nextStage: OcrStage,
+  { preserveLocalSession = false } = {},
+): DetachedResources {
   ++selectionToken;
   ++runToken;
-  const detached = detachResources();
+  const detached = detachResources({ preserveLocalSession });
   resetMessages();
   stage.value = nextStage;
   isPreparing.value = false;
@@ -596,10 +600,16 @@ async function persistAndOpenReview(
     workflowStore.setReviewDraft(ocrTask);
     localSession.setResult(source, result);
     currentWorkflowId.value = workflow.workflowId;
-    await router.push({
-      name: 'WorkflowOcrReview',
-      params: { workflowId: workflow.workflowId },
-    });
+    preserveReviewDraftOnUnmount = true;
+    try {
+      await router.push({
+        name: 'WorkflowOcrReview',
+        params: { workflowId: workflow.workflowId },
+      });
+    } catch (error) {
+      preserveReviewDraftOnUnmount = false;
+      throw error;
+    }
     return workflow.workflowId;
   } finally {
     isPersisting.value = false;
@@ -638,7 +648,9 @@ async function useManualEntry(): Promise<void> {
 }
 
 onBeforeUnmount(() => {
-  const detached = invalidateSelection('IDLE');
+  const preserveLocalSession = preserveReviewDraftOnUnmount;
+  preserveReviewDraftOnUnmount = false;
+  const detached = invalidateSelection('IDLE', { preserveLocalSession });
   void disposeResources(detached);
 });
 </script>
