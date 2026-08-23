@@ -3,9 +3,9 @@ package org.footballlab.analysis.service;
 import java.math.BigDecimal;
 import java.util.List;
 
-import org.footballlab.analysis.domain.AnalysisGenerateRequest;
 import org.footballlab.analysis.domain.AnalysisMarketRequest;
 import org.footballlab.analysis.domain.AnalysisMatchRequest;
+import org.footballlab.ocr.domain.UserConfirmedSnapshotResponse;
 
 public record AuthoritativeAnalysisInput(
         String workflowId,
@@ -21,19 +21,38 @@ public record AuthoritativeAnalysisInput(
         List<AnalysisMatchRequest> matches,
         List<AnalysisMarketRequest> markets) {
 
-    public static AuthoritativeAnalysisInput fromClientConfirmedRequest(AnalysisGenerateRequest request) {
+    public static AuthoritativeAnalysisInput fromConfirmedSnapshot(UserConfirmedSnapshotResponse snapshot) {
         return new AuthoritativeAnalysisInput(
-                null,
-                request.snapshotId(),
-                "CLIENT_CONFIRMED_COMPATIBILITY_INPUT",
-                request.sourceType(),
-                "CONFIRMED",
-                request.analysisAllowed(),
-                request.budgetAmount(),
-                request.currency(),
-                request.riskPreference(),
-                null,
-                request.matches() == null ? List.of() : List.copyOf(request.matches()),
-                request.markets() == null ? List.of() : List.copyOf(request.markets()));
+                snapshot.workflowId(),
+                snapshot.snapshotId(),
+                snapshot.authorityType(),
+                snapshot.sourceType(),
+                snapshot.snapshotStatus(),
+                snapshot.analysisAllowed(),
+                snapshot.budgetAmount(),
+                snapshot.currency(),
+                snapshot.riskPreference(),
+                snapshot.confirmedAt(),
+                snapshot.matches() == null
+                        ? List.of()
+                        : snapshot.matches().stream()
+                                .map(match -> new AnalysisMatchRequest(
+                                        match.matchId(),
+                                        match.matchDate(),
+                                        match.league(),
+                                        match.homeTeam(),
+                                        match.awayTeam(),
+                                        match.kickoffTime()))
+                                .toList(),
+                snapshot.markets() == null
+                        ? List.of()
+                        : snapshot.markets().stream()
+                                .map(market -> new AnalysisMarketRequest(
+                                        market.marketId(),
+                                        market.matchId(),
+                                        market.playType(),
+                                        market.selection(),
+                                        market.odds()))
+                                .toList());
     }
 }

@@ -1,6 +1,7 @@
 package org.footballlab.analysis;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -9,14 +10,25 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import java.nio.charset.StandardCharsets;
+import java.math.BigDecimal;
+import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.footballlab.analysis.repository.AnalysisReportRepository;
+import org.footballlab.analysis.domain.AnalysisMarketRequest;
+import org.footballlab.analysis.domain.AnalysisMatchRequest;
+import org.footballlab.analysis.domain.AnalysisReportResponse;
+import org.footballlab.analysis.domain.ResolvedAnalysisEngineConfiguration;
+import org.footballlab.analysis.service.AnalysisEngineContext;
+import org.footballlab.analysis.service.AnalysisEngineResult;
+import org.footballlab.analysis.service.AuthoritativeAnalysisInput;
+import org.footballlab.analysis.service.MockRuleAnalysisEngine;
+import org.footballlab.analysis.service.OpenAiCompatibleAnalysisEngine;
 import org.footballlab.llm.domain.LlmHttpRequest;
 import org.footballlab.llm.domain.LlmHttpResponse;
 import org.footballlab.llm.service.LlmHttpTransport;
+import org.footballlab.strategy.domain.StrategyParameterRequest;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,10 +36,14 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.web.server.ResponseStatusException;
 
-@SpringBootTest(properties = "OPENAI_API_KEY=unit-test-secret")
+@SpringBootTest(properties = {
+        "spring.datasource.url=jdbc:h2:mem:analysis_engine_tests;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1",
+        "OPENAI_API_KEY=unit-test-secret"
+})
 @AutoConfigureMockMvc
 class AnalysisEngineTest {
 
@@ -35,116 +51,163 @@ class AnalysisEngineTest {
     private MockMvc mockMvc;
 
     @Autowired
-    private AnalysisReportRepository analysisReportRepository;
+    private OpenAiCompatibleAnalysisEngine openAiCompatibleAnalysisEngine;
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @MockBean
     private LlmHttpTransport llmHttpTransport;
 
     @Test
-    void shouldRouteExplicitOpenAiCompatibleAnalysisThroughLlmEngineAndPersistMetadata() throws Exception {
+    void mockRuleEngineReturnsWrappedReport() {
+        MockRuleAnalysisEngine engine = new MockRuleAnalysisEngine();
+        StrategyParameterRequest strategyParameters = strategyParameters();
+
+        AnalysisEngineResult result = engine.generate(new AnalysisEngineContext(
+                "analysis-engine-001",
+                "2026-08-23T15:01:00+08:00",
+                authoritativeInput(),
+                new ResolvedAnalysisEngineConfiguration("MOCK_RULE_ENGINE", null, null, null),
+                strategyParameters));
+
+        assertThat(result.report().reportId()).isEqualTo("analysis-engine-001");
+        assertThat(result.report().snapshotId()).isEqualTo("snapshot-engine-001");
+        assertThat(result.report().strategyParameters()).isEqualTo(strategyParameters);
+        assertThat(result.report().simulatedSelections()).singleElement()
+                .satisfies(selection -> {
+                    assertThat(selection.matchId()).isEqualTo("match-engine-001");
+                    assertThat(selection.selection()).isEqualTo("HOME_WIN");
+                });
+    }
+
+    @Test
+    void openAiCompatibleEngineReturnsWrappedValidatedReportAndAuditMetadata() throws Exception {
         when(llmHttpTransport.exchange(any()))
                 .thenReturn(new LlmHttpResponse(200, llmResponseBody(validLlmOutput()), 88));
+        AnalysisEngineContext context = openAiContext("openai");
 
-        MvcResult result = mockMvc.perform(post("/api/analysis/generate")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(openAiCompatibleRequest("openai")))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.engineType").value("OPENAI_COMPATIBLE"))
-                .andExpect(jsonPath("$.data.providerKey").value("openai"))
-                .andExpect(jsonPath("$.data.modelId").value("gpt-4o-mini"))
-                .andExpect(jsonPath("$.data.promptVersion").value("danche-prediction-v1"))
-                .andExpect(jsonPath("$.data.safetyStatus").value("PASSED"))
-                .andExpect(jsonPath("$.data.llmOutput.parameterUsage.budgetAmount").value(20))
-                .andExpect(jsonPath("$.data.simulatedSelections[0].matchId").value("demo-match-001"))
-                .andReturn();
+        AnalysisReportResponse report = openAiCompatibleAnalysisEngine.generate(context).report();
 
-        String body = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
-        String reportId = JsonFieldExtractor.extractString(body, "reportId");
-        assertThat(analysisReportRepository.findById(reportId))
-                .isPresent()
-                .get()
-                .satisfies(report -> {
-                    assertThat(report.providerKey()).isEqualTo("openai");
-                    assertThat(report.modelId()).isEqualTo("gpt-4o-mini");
-                    assertThat(report.promptVersion()).isEqualTo("danche-prediction-v1");
-                    assertThat(report.safetyStatus()).isEqualTo("PASSED");
-                    assertThat(report.llmOutput().path("finalDecision").path("summary").asText()).contains("validated");
-                });
+        assertThat(report.engineType()).isEqualTo("OPENAI_COMPATIBLE");
+        assertThat(report.providerKey()).isEqualTo("openai");
+        assertThat(report.modelId()).isEqualTo("gpt-4o-mini");
+        assertThat(report.promptVersion()).isEqualTo("danche-prediction-v1");
+        assertThat(report.safetyStatus()).isEqualTo("PASSED");
+        assertThat(report.llmOutput().path("parameterUsage").path("budgetAmount").decimalValue())
+                .isEqualByComparingTo("20");
+        assertThat(report.simulatedSelections()).singleElement()
+                .extracting(selection -> selection.matchId())
+                .isEqualTo("match-engine-001");
+        assertThat(report.llmAuditId()).isNotBlank();
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from llm_invocation_audit where business_id = ?",
+                Integer.class,
+                context.reportId())).isEqualTo(1);
 
         ArgumentCaptor<LlmHttpRequest> requestCaptor = ArgumentCaptor.forClass(LlmHttpRequest.class);
         verify(llmHttpTransport).exchange(requestCaptor.capture());
         assertThat(requestCaptor.getValue().url()).isEqualTo("https://api.openai.com/v1/chat/completions");
         assertThat(requestCaptor.getValue().authorizationHeader()).isEqualTo("Bearer unit-test-secret");
         assertThat(requestCaptor.getValue().body())
-                .contains("snapshot-llm-001")
+                .contains("snapshot-engine-001")
                 .contains("danche-prediction-v1")
                 .contains("\"model\":\"gpt-4o-mini\"");
         assertThat(requestCaptor.getValue().toString()).doesNotContain("unit-test-secret");
     }
 
     @Test
-    void shouldRejectOpenAiCompatibleAnalysisWhenProviderCredentialIsMissing() throws Exception {
-        mockMvc.perform(post("/api/analysis/generate")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(openAiCompatibleRequest("deepseek")))
-                .andExpect(status().isBadRequest());
+    void openAiCompatibleEngineRejectsMissingProviderCredentialBeforeTransport() {
+        assertThatThrownBy(() -> openAiCompatibleAnalysisEngine.generate(openAiContext("deepseek")))
+                .isInstanceOf(ResponseStatusException.class);
 
         verifyNoInteractions(llmHttpTransport);
     }
 
-    private String openAiCompatibleRequest(String providerKey) {
-        return """
-                {
-                  "snapshotId": "snapshot-llm-001",
-                  "sourceType": "USER_SCREENSHOT_CONFIRMED",
-                  "analysisAllowed": true,
-                  "engineMode": "OPENAI_COMPATIBLE",
-                  "providerKey": "%s",
-                  "modelId": "gpt-4o-mini",
-                  "promptVersion": "danche-prediction-v1",
-                  "strategyParameters": {
-                    "budgetAmount": 20,
-                    "currency": "CNY",
-                    "targetTicketCount": 1,
-                    "minTicketCount": 1,
-                    "maxTicketCount": 2,
-                    "riskPreference": "BALANCED",
-                    "mainTicketRatio": 0.6,
-                    "defensiveTicketRatio": 0.3,
-                    "entertainmentTicketRatio": 0.1,
-                    "enableEntertainmentTicket": true,
-                    "entertainmentTicketMaxCost": 2,
-                    "maxParlayLegs": 2,
-                    "preferredPlayTypes": ["WIN_DRAW_LOSS"],
-                    "excludedPlayTypes": ["EXACT_SCORE"],
-                    "exactScorePolicy": "DISABLED",
-                    "allowLowReturnTicket": false,
-                    "upsetCoverageLevel": "BALANCED"
-                  },
-                  "matches": [
-                    {
-                      "matchId": "demo-match-001",
-                      "matchDate": "2026-07-01",
-                      "league": "Fictional Coastal League",
-                      "homeTeam": "Northport United",
-                      "awayTeam": "Lakeside City",
-                      "kickoffTime": "2026-07-01T19:30:00+08:00"
-                    }
-                  ],
-                  "markets": [
-                    {
-                      "marketId": "demo-market-001",
-                      "matchId": "demo-match-001",
-                      "playType": "WIN_DRAW_LOSS",
-                      "selection": "HOME_WIN",
-                      "odds": 2.05
-                    }
-                  ]
-                }
-                """.formatted(providerKey);
+    @Test
+    void task4ServiceRejectsExternalEngineBeforeTransportInvocation() throws Exception {
+        mockMvc.perform(post("/api/analysis/generate")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "snapshotId": "snapshot-engine-missing",
+                                  "engineMode": "OPENAI_COMPATIBLE",
+                                  "providerKey": "openai",
+                                  "modelId": "gpt-4o-mini",
+                                  "promptVersion": "danche-prediction-v1",
+                                  "analysisOptions": null
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.errorCode").value("UNSUPPORTED_ANALYSIS_ENGINE"));
+
+        verifyNoInteractions(llmHttpTransport);
+    }
+
+    private AnalysisEngineContext openAiContext(String providerKey) {
+        return new AnalysisEngineContext(
+                "analysis-engine-" + UUID.randomUUID(),
+                "2026-08-23T15:01:00+08:00",
+                authoritativeInput(),
+                new ResolvedAnalysisEngineConfiguration(
+                        "OPENAI_COMPATIBLE",
+                        providerKey,
+                        "gpt-4o-mini",
+                        "danche-prediction-v1"),
+                strategyParameters());
+    }
+
+    private AuthoritativeAnalysisInput authoritativeInput() {
+        return new AuthoritativeAnalysisInput(
+                "workflow-engine-001",
+                "snapshot-engine-001",
+                "SERVER_CONFIRMED_V2",
+                "USER_SCREENSHOT_CONFIRMED",
+                "CONFIRMED",
+                true,
+                new BigDecimal("20.00"),
+                "CNY",
+                "BALANCED",
+                "2026-08-23T15:00:00+08:00",
+                List.of(new AnalysisMatchRequest(
+                        "match-engine-001",
+                        "2026-08-24",
+                        "Engine League",
+                        "Engine North",
+                        "Engine South",
+                        "2026-08-24T19:30:00+08:00")),
+                List.of(new AnalysisMarketRequest(
+                        "market-engine-001",
+                        "match-engine-001",
+                        "WIN_DRAW_LOSS",
+                        "HOME_WIN",
+                        new BigDecimal("2.0500"))));
+    }
+
+    private StrategyParameterRequest strategyParameters() {
+        return new StrategyParameterRequest(
+                new BigDecimal("20.00"),
+                "CNY",
+                1,
+                1,
+                2,
+                "BALANCED",
+                new BigDecimal("0.60"),
+                new BigDecimal("0.30"),
+                new BigDecimal("0.10"),
+                true,
+                new BigDecimal("2.00"),
+                2,
+                List.of("WIN_DRAW_LOSS"),
+                List.of("EXACT_SCORE"),
+                "DISABLED",
+                null,
+                false,
+                "BALANCED");
     }
 
     private String llmResponseBody(String content) throws Exception {
@@ -168,24 +231,24 @@ class AnalysisEngineTest {
                   },
                   "scorePredictions": [
                     {
-                      "matchId": "demo-match-001",
+                      "matchId": "match-engine-001",
                       "mainScore": "2:1"
                     }
                   ],
                   "upsetFocus": [],
                   "stableMatches": [
                     {
-                      "matchId": "demo-match-001"
+                      "matchId": "match-engine-001"
                     }
                   ],
                   "ticketGroups": [
                     {
                       "ticketType": "MAIN",
                       "cost": 20,
-                      "legs": ["demo-match-001"],
+                      "legs": ["match-engine-001"],
                       "selections": [
                         {
-                          "matchId": "demo-match-001",
+                          "matchId": "match-engine-001",
                           "playType": "WIN_DRAW_LOSS",
                           "selection": "HOME_WIN"
                         }
@@ -201,21 +264,5 @@ class AnalysisEngineTest {
                   "complianceNotice": "非官方模拟分析结果，仅用于技术研究和流程验证，不构成购彩建议，不承诺命中率、收益或确定性结果。"
                 }
                 """;
-    }
-
-    private static final class JsonFieldExtractor {
-
-        private JsonFieldExtractor() {
-        }
-
-        static String extractString(String json, String fieldName) {
-            String marker = "\"" + fieldName + "\":\"";
-            int start = json.indexOf(marker);
-            assertThat(start).isGreaterThanOrEqualTo(0);
-            int valueStart = start + marker.length();
-            int valueEnd = json.indexOf('"', valueStart);
-            assertThat(valueEnd).isGreaterThan(valueStart);
-            return json.substring(valueStart, valueEnd);
-        }
     }
 }

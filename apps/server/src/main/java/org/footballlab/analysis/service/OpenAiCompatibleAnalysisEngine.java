@@ -59,7 +59,7 @@ public class OpenAiCompatibleAnalysisEngine implements AnalysisEngine {
     }
 
     @Override
-    public AnalysisReportResponse generate(AnalysisEngineContext context) {
+    public AnalysisEngineResult generate(AnalysisEngineContext context) {
         AuthoritativeAnalysisInput input = context.input();
         String promptVersion = context.engineConfiguration().promptVersion();
         LlmProviderInvocationConfig provider = providerRegistry.resolveInvocationConfig(
@@ -96,7 +96,7 @@ public class OpenAiCompatibleAnalysisEngine implements AnalysisEngine {
                     chatResponse,
                     validationResult.safetyStatus());
 
-            return new AnalysisReportResponse(
+            return new AnalysisEngineResult(new AnalysisReportResponse(
                     context.reportId(),
                     input.snapshotId(),
                     input.sourceType(),
@@ -113,7 +113,7 @@ public class OpenAiCompatibleAnalysisEngine implements AnalysisEngine {
                     promptVersion,
                     validationResult.safetyStatus(),
                     auditId,
-                    llmOutput);
+                    llmOutput));
         } catch (ResponseStatusException exception) {
             recordFailureAudit(context, provider, promptVersion, inputPayload, chatResponse, exception);
             throw exception;

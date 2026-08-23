@@ -27,7 +27,7 @@ public class MockRuleAnalysisEngine implements AnalysisEngine {
     }
 
     @Override
-    public AnalysisReportResponse generate(AnalysisEngineContext context) {
+    public AnalysisEngineResult generate(AnalysisEngineContext context) {
         AuthoritativeAnalysisInput input = context.input();
         StrategyParameterRequest strategyParameters = context.strategyParameters();
         List<ProbabilityInsightResponse> probabilityAnalysis = input.matches().stream()
@@ -52,7 +52,7 @@ public class MockRuleAnalysisEngine implements AnalysisEngine {
                         "模拟选择，用于下一阶段生成模拟方案前的候选项。"))
                 .toList();
 
-        return new AnalysisReportResponse(
+        return new AnalysisEngineResult(new AnalysisReportResponse(
                 context.reportId(),
                 input.snapshotId(),
                 input.sourceType(),
@@ -69,7 +69,7 @@ public class MockRuleAnalysisEngine implements AnalysisEngine {
                 null,
                 "PASSED",
                 null,
-                null);
+                null));
     }
 
     private ProbabilityInsightResponse buildProbabilityInsight(

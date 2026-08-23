@@ -134,14 +134,9 @@ async function verifyApiFlow() {
 
   const analysis = await postJson('/api/analysis/generate', {
     snapshotId: snapshot.data.snapshotId,
-    sourceType: snapshot.data.sourceType,
-    analysisAllowed: snapshot.data.analysisAllowed,
-    riskPreference: snapshot.data.riskPreference,
-    budgetAmount: snapshot.data.budgetAmount,
-    currency: snapshot.data.currency,
-    matches: snapshot.data.matches,
-    markets: snapshot.data.markets
-  });
+    engineMode: 'MOCK_RULE_ENGINE',
+    analysisOptions: null
+  }, idempotencyHeaders());
   assert.equal(analysis.data.reportStatus, 'GENERATED');
   assert.equal(analysis.data.inputSourceType, 'USER_SCREENSHOT_CONFIRMED');
 
