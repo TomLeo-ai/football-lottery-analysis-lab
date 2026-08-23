@@ -912,7 +912,7 @@ if (loadFailure) {
       await removeWorkerSource(rootDirectory);
       await expectRejected(
         () => checker.checkOcrAssets({ rootDirectory }),
-        /installed.*ocr core.*version.*0\.1\.0/i,
+        /installed.*ocr core.*version.*0\.2\.0/i,
       );
     });
   });
