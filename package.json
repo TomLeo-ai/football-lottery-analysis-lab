@@ -25,6 +25,7 @@
     "test:real-ocr-smoke": "node --test scripts/real-ocr-browser-smoke.spec.mjs",
     "test:isolated-runtime": "node --test scripts/lib/isolated-runtime.spec.mjs",
     "test:stage9-web-server": "node --test scripts/stage9-web-server.spec.mjs",
+    "test:stage9-smoke": "node --test scripts/stage9-smoke.spec.mjs scripts/stage9-privacy-audit.spec.mjs",
     "test:stage8-config": "node scripts/stage8-config.spec.mjs",
     "test:server": "mvn -f apps/server/pom.xml test",
     "test:web": "npm run test -w apps/web",
