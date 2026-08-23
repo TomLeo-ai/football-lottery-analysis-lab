@@ -8,6 +8,8 @@ public enum WorkflowStage {
     WAITING_USER_CONFIRMATION,
     CONFIRMED,
     ANALYSIS_GENERATED,
+    PLAN_GENERATED,
+    PENDING_RESULT,
     ABANDONED;
 
     public boolean canTransitionTo(WorkflowStage nextStage) {
@@ -22,7 +24,9 @@ public enum WorkflowStage {
             case WAITING_LOCAL_OCR -> EnumSet.of(WAITING_USER_CONFIRMATION, ABANDONED);
             case WAITING_USER_CONFIRMATION -> EnumSet.of(CONFIRMED, ABANDONED);
             case CONFIRMED -> EnumSet.of(ANALYSIS_GENERATED);
-            case ANALYSIS_GENERATED, ABANDONED -> EnumSet.noneOf(WorkflowStage.class);
+            case ANALYSIS_GENERATED -> EnumSet.of(PLAN_GENERATED);
+            case PLAN_GENERATED -> EnumSet.of(PENDING_RESULT);
+            case PENDING_RESULT, ABANDONED -> EnumSet.noneOf(WorkflowStage.class);
         };
     }
 }

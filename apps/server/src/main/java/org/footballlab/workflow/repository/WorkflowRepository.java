@@ -41,6 +41,25 @@ public interface WorkflowRepository {
             String currentReportId,
             String updatedAt);
 
+    boolean transitionPlanGenerationClaimed(
+            String workflowId,
+            long expectedVersion,
+            WorkflowStage expectedStage,
+            WorkflowOperationType operationType,
+            String operationKey,
+            String currentReportId,
+            String currentPlanId,
+            String updatedAt);
+
+    boolean transitionPlanSaveClaimed(
+            String workflowId,
+            long expectedVersion,
+            WorkflowOperationType operationType,
+            String operationKey,
+            String currentReportId,
+            String currentPlanId,
+            String updatedAt);
+
     boolean clearActiveOperation(
             String workflowId,
             WorkflowOperationType operationType,

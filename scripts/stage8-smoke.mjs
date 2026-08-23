@@ -141,23 +141,14 @@ async function verifyApiFlow() {
   assert.equal(analysis.data.inputSourceType, 'USER_SCREENSHOT_CONFIRMED');
 
   const generatedPlan = await postJson('/api/strategies/simulate', {
-    reportId: analysis.data.reportId,
-    snapshotId: analysis.data.snapshotId,
-    inputSourceType: analysis.data.inputSourceType,
-    engineType: analysis.data.engineType,
-    reportStatus: analysis.data.reportStatus,
-    currency: snapshot.data.currency,
-    budgetAmount: snapshot.data.budgetAmount,
-    probabilityAnalysis: analysis.data.probabilityAnalysis,
-    riskWarnings: analysis.data.riskWarnings,
-    simulatedSelections: analysis.data.simulatedSelections
-  });
+    reportId: analysis.data.reportId
+  }, idempotencyHeaders());
   assert.equal(generatedPlan.data.planStatus, 'GENERATED');
 
   const savedPlan = await postJson('/api/simulated-plans', {
     generatedPlanId: generatedPlan.data.planId,
     operatorNote: 'Stage 8 smoke validation plan.'
-  });
+  }, idempotencyHeaders());
   assert.equal(savedPlan.data.planStatus, 'PENDING_RESULT');
 
   const sync = await postJson('/api/result-providers/sync', {

@@ -18,7 +18,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.footballlab.analysis.domain.AnalysisMarketRequest;
 import org.footballlab.analysis.domain.AnalysisMatchRequest;
 import org.footballlab.analysis.domain.AnalysisReportResponse;
+import org.footballlab.analysis.domain.ProbabilityInsightResponse;
+import org.footballlab.analysis.domain.RiskWarningResponse;
+import org.footballlab.analysis.domain.SimulatedSelectionResponse;
 import org.footballlab.analysis.domain.ResolvedAnalysisEngineConfiguration;
+import org.footballlab.analysis.persistence.AnalysisReportV2Record;
+import org.footballlab.analysis.repository.AnalysisReportRepository;
 import org.footballlab.analysis.service.AnalysisEngineContext;
 import org.footballlab.analysis.service.AnalysisEngineResult;
 import org.footballlab.analysis.service.AuthoritativeAnalysisInput;
@@ -27,6 +32,8 @@ import org.footballlab.llm.domain.LlmHttpRequest;
 import org.footballlab.llm.domain.LlmHttpResponse;
 import org.footballlab.llm.domain.LlmInvocationAuditRecord;
 import org.footballlab.llm.service.LlmHttpTransport;
+import org.footballlab.ocr.domain.ConfirmedMarketResponse;
+import org.footballlab.ocr.domain.ConfirmedMatchResponse;
 import org.footballlab.strategy.domain.StrategyParameterRequest;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -54,6 +61,9 @@ class LlmInvocationAuditTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private AnalysisReportRepository analysisReportRepository;
 
     @Autowired
     private OpenAiCompatibleAnalysisEngine openAiCompatibleAnalysisEngine;
@@ -356,47 +366,21 @@ class LlmInvocationAuditTest {
     }
 
     private String createSavedPlan() throws Exception {
+        String reportId = insertAuthoritativeReportFixture();
         MvcResult simulateResult = mockMvc.perform(post("/api/strategies/simulate")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "reportId": "analysis-review-audit-001",
-                                  "snapshotId": "snapshot-review-audit-001",
-                                  "inputSourceType": "USER_SCREENSHOT_CONFIRMED",
-                                  "engineType": "MOCK_RULE_ENGINE",
-                                  "reportStatus": "GENERATED",
-                                  "currency": "CNY",
-                                  "budgetAmount": 20,
-                                  "probabilityAnalysis": [
-                                    {
-                                      "matchId": "demo-match-001",
-                                      "matchDate": "2026-07-01",
-                                      "league": "Fictional Coastal League",
-                                      "homeTeam": "Northport United",
-                                      "awayTeam": "Lakeside City",
-                                      "kickoffTime": "2026-07-01T19:30:00+08:00",
-                                      "selection": "AWAY_WIN",
-                                      "probabilityBand": "MEDIUM",
-                                      "rationale": "用于阶段 5 审计测试的虚构分析。"
-                                    }
-                                  ],
-                                  "simulatedSelections": [
-                                    {
-                                      "matchId": "demo-match-001",
-                                      "playType": "WIN_DRAW_LOSS",
-                                      "selection": "AWAY_WIN",
-                                      "odds": 2.05,
-                                      "stakeAmount": 10,
-                                      "note": "模拟选择，用于审计测试。"
-                                    }
-                                  ]
+                                  "reportId": "%s"
                                 }
-                                """))
-                .andExpect(status().isOk())
+                                """.formatted(reportId)))
+                .andExpect(status().isCreated())
                 .andReturn();
 
         String generatedPlanId = readData(simulateResult).path("planId").asText();
         MvcResult saveResult = mockMvc.perform(post("/api/simulated-plans")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -407,6 +391,48 @@ class LlmInvocationAuditTest {
                 .andExpect(status().isOk())
                 .andReturn();
         return readData(saveResult).path("planId").asText();
+    }
+
+    private String insertAuthoritativeReportFixture() throws Exception {
+        String suffix = UUID.randomUUID().toString();
+        String workflowId = "workflow-review-audit-" + suffix;
+        String screenshotId = "shot-review-audit-" + suffix;
+        String ocrId = "ocr-review-audit-" + suffix;
+        String snapshotId = "snapshot-review-audit-" + suffix;
+        String reportId = "analysis-review-audit-" + suffix;
+        String now = "2026-08-24T10:00:00+08:00";
+        List<ConfirmedMatchResponse> matches = List.of(new ConfirmedMatchResponse(
+                "demo-match-001", "2026-07-01", "Fictional Coastal League",
+                "Northport United", "Lakeside City", "2026-07-01T19:30:00+08:00"));
+        List<ConfirmedMarketResponse> markets = List.of(new ConfirmedMarketResponse(
+                "market-review-audit-" + suffix, "demo-match-001", "WIN_DRAW_LOSS", "AWAY_WIN",
+                new BigDecimal("2.0500")));
+        jdbcTemplate.update("insert into ocr_workflow (workflow_id,current_stage,version,current_ocr_task_id,confirmed_snapshot_id,current_report_id,created_at,updated_at) values (?,'ANALYSIS_GENERATED',4,?,?,?,?,?)",
+                workflowId, ocrId, snapshotId, reportId, now, now);
+        jdbcTemplate.update("insert into screenshot_task (task_id,file_name,content_type,file_size,sample_label,status,server_ocr_enabled,privacy_policy,created_at,workflow_id) values (?,'audit.png','image/png',1,'FICTIONAL_SAMPLE','CREATED',false,'LOCAL_ONLY',?,?)",
+                screenshotId, now, workflowId);
+        jdbcTemplate.update("insert into ocr_task (ocr_task_id,screenshot_task_id,ocr_provider,status,analysis_allowed,parsed_at,workflow_id) values (?,?,'LOCAL_BROWSER','PARSED',true,?,?)",
+                ocrId, screenshotId, now, workflowId);
+        jdbcTemplate.update("insert into ocr_confirmed_snapshot (snapshot_id,ocr_task_id,source_type,snapshot_status,analysis_allowed,risk_preference,budget_amount,currency,matches_json,markets_json,payload_json,confirmed_at,workflow_id,confirmed_revision,authority_type,provenance_json,schema_version) values (?,?,'USER_SCREENSHOT_CONFIRMED','CONFIRMED',true,'BALANCED',20.00,'CNY',?,?,'{}',?,?,7,'SERVER_CONFIRMED_V2','{}','CONFIRMED_SNAPSHOT_V2')",
+                snapshotId, ocrId, objectMapper.writeValueAsString(matches), objectMapper.writeValueAsString(markets), now, workflowId);
+        StrategyParameterRequest strategy = new StrategyParameterRequest(
+                new BigDecimal("20.00"), "CNY", 1, 1, 1, "BALANCED",
+                new BigDecimal("0.60"), new BigDecimal("0.30"), new BigDecimal("0.10"), true,
+                new BigDecimal("2.00"), 1, List.of("WIN_DRAW_LOSS"), List.of(), "DISABLED",
+                null, false, "BALANCED");
+        analysisReportRepository.insertV2(new AnalysisReportV2Record(
+                workflowId, reportId, snapshotId, 7, AnalysisReportV2Record.AUTHORITY_TYPE,
+                "USER_SCREENSHOT_CONFIRMED", "MOCK_RULE_ENGINE", "GENERATED", strategy,
+                "STRATEGY_DEFAULTS_V2", List.of(new ProbabilityInsightResponse(
+                        "demo-match-001", "2026-07-01", "Fictional Coastal League",
+                        "2026-07-01T19:30:00+08:00", "Northport United", "Lakeside City",
+                        "AWAY_WIN", "MEDIUM", "Persisted audit fixture.")),
+                List.of(new RiskWarningResponse("INFO_RISK", "MEDIUM", "Audit fixture risk.")),
+                List.of(new SimulatedSelectionResponse(
+                        "demo-match-001", "WIN_DRAW_LOSS", "AWAY_WIN", new BigDecimal("2.0500"),
+                        new BigDecimal("10.00"), "Persisted audit selection.")),
+                "For research only.", now, null, null, null, "PASSED", null, null));
+        return reportId;
     }
 
     private static String markdownWrappedJson(String json) {

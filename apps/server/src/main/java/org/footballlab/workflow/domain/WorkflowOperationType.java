@@ -8,5 +8,6 @@ public enum WorkflowOperationType {
     ABANDON_WORKFLOW,
     GENERATE_REPORT,
     GENERATE_ANALYSIS,
-    CREATE_PLAN
+    CREATE_PLAN,
+    SAVE_PLAN
 }

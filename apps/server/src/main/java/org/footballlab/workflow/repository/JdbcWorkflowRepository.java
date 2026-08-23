@@ -203,6 +203,86 @@ public class JdbcWorkflowRepository implements WorkflowRepository {
         return updatedRows == 1;
     }
 
+    @Override
+    public boolean transitionPlanGenerationClaimed(
+            String workflowId,
+            long expectedVersion,
+            WorkflowStage expectedStage,
+            WorkflowOperationType operationType,
+            String operationKey,
+            String currentReportId,
+            String currentPlanId,
+            String updatedAt) {
+        if (!expectedStage.canTransitionTo(WorkflowStage.PLAN_GENERATED)) {
+            throw new ApiException(
+                    HttpStatus.CONFLICT,
+                    "ILLEGAL_WORKFLOW_TRANSITION",
+                    "Workflow stage transition is not allowed.");
+        }
+        int updatedRows = jdbcTemplate.update("""
+                        update ocr_workflow
+                        set current_stage = ?,
+                            current_plan_id = ?,
+                            active_operation_type = null,
+                            active_operation_key = null,
+                            version = version + 1,
+                            updated_at = ?
+                        where workflow_id = ?
+                          and version = ?
+                          and current_stage = ?
+                          and active_operation_type = ?
+                          and active_operation_key = ?
+                          and current_report_id = ?
+                          and current_plan_id is null
+                        """,
+                WorkflowStage.PLAN_GENERATED.name(),
+                currentPlanId,
+                updatedAt,
+                workflowId,
+                expectedVersion,
+                expectedStage.name(),
+                operationType.name(),
+                operationKey,
+                currentReportId);
+        return updatedRows == 1;
+    }
+
+    @Override
+    public boolean transitionPlanSaveClaimed(
+            String workflowId,
+            long expectedVersion,
+            WorkflowOperationType operationType,
+            String operationKey,
+            String currentReportId,
+            String currentPlanId,
+            String updatedAt) {
+        int updatedRows = jdbcTemplate.update("""
+                        update ocr_workflow
+                        set current_stage = ?,
+                            active_operation_type = null,
+                            active_operation_key = null,
+                            version = version + 1,
+                            updated_at = ?
+                        where workflow_id = ?
+                          and version = ?
+                          and current_stage = ?
+                          and active_operation_type = ?
+                          and active_operation_key = ?
+                          and current_report_id = ?
+                          and current_plan_id = ?
+                        """,
+                WorkflowStage.PENDING_RESULT.name(),
+                updatedAt,
+                workflowId,
+                expectedVersion,
+                WorkflowStage.PLAN_GENERATED.name(),
+                operationType.name(),
+                operationKey,
+                currentReportId,
+                currentPlanId);
+        return updatedRows == 1;
+    }
+
     private WorkflowRecord mapWorkflow(ResultSet resultSet, int rowNumber) throws SQLException {
         String activeOperationType = resultSet.getString("active_operation_type");
         return new WorkflowRecord(

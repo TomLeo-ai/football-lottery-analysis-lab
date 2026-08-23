@@ -13,15 +13,30 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.nio.charset.StandardCharsets;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import com.jayway.jsonpath.JsonPath;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.footballlab.analysis.domain.ProbabilityInsightResponse;
+import org.footballlab.analysis.domain.RiskWarningResponse;
+import org.footballlab.analysis.domain.SimulatedSelectionResponse;
+import org.footballlab.analysis.persistence.AnalysisReportV2Record;
+import org.footballlab.analysis.repository.AnalysisReportRepository;
 import org.footballlab.llm.domain.LlmHttpRequest;
 import org.footballlab.llm.domain.LlmHttpResponse;
 import org.footballlab.llm.service.LlmHttpTransport;
 import org.footballlab.review.repository.ReviewRecordRepository;
+import org.footballlab.ocr.domain.ConfirmedMarketResponse;
+import org.footballlab.ocr.domain.ConfirmedMatchResponse;
+import org.footballlab.plan.domain.SimulatedPlanItemResponse;
+import org.footballlab.plan.domain.SimulatedPlanResponse;
+import org.footballlab.plan.domain.SimulatedPlanSnapshotResponse;
+import org.footballlab.plan.repository.SimulatedPlanRepository;
+import org.footballlab.strategy.domain.StrategyParameterRequest;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,6 +44,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
@@ -57,6 +73,15 @@ class ReviewWorkflowControllerTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private AnalysisReportRepository analysisReportRepository;
+
+    @Autowired
+    private SimulatedPlanRepository simulatedPlanRepository;
 
     @MockBean
     private LlmHttpTransport llmHttpTransport;
@@ -266,44 +291,73 @@ class ReviewWorkflowControllerTest {
         }
     }
 
+    @Test
+    void corruptedV2NonWdlPlanFailsBeforeReviewPersistence() throws Exception {
+        String planId = createSavedPlan();
+        String unsupportedPlayType = "HANDICAP_WIN_DRAW_LOSS";
+        ObjectNode itemPayload = (ObjectNode) objectMapper.readTree(jdbcTemplate.queryForObject(
+                "select payload_json from simulated_plan_item where plan_id = ?",
+                String.class,
+                planId));
+        itemPayload.put("playType", unsupportedPlayType);
+        jdbcTemplate.update("""
+                        update simulated_plan_item
+                        set play_type = ?, payload_json = ?
+                        where plan_id = ?
+                        """,
+                unsupportedPlayType,
+                objectMapper.writeValueAsString(itemPayload),
+                planId);
+
+        ObjectNode planPayload = (ObjectNode) objectMapper.readTree(jdbcTemplate.queryForObject(
+                "select payload_json from simulated_plan where plan_id = ?",
+                String.class,
+                planId));
+        ((ObjectNode) planPayload.path("items").get(0)).put("playType", unsupportedPlayType);
+        jdbcTemplate.update(
+                "update simulated_plan set payload_json = ? where plan_id = ?",
+                objectMapper.writeValueAsString(planPayload),
+                planId);
+
+        mockMvc.perform(post("/api/simulated-plans/{planId}/settle", planId))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.errorCode").value("PLAN_LINEAGE_INTEGRITY_FAILED"));
+
+        assertThat(reviewRecordRepository.existsByPlanId(planId)).isFalse();
+    }
+
+    @Test
+    void legacyHandicapPlanKeepsNeedsReviewSettlementWithoutChangingPlanStatus() throws Exception {
+        String planId = insertLegacyPendingHandicapPlan();
+        mockMvc.perform(post("/api/result-providers/sync")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"providerKey":"mock-public-results","requestedBy":"legacy-review-test"}
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/simulated-plans/{planId}/settle", planId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.reviewStatus").value("NEEDS_REVIEW"))
+                .andExpect(jsonPath("$.data.itemSettlements[0].settlementStatus").value("NEEDS_REVIEW"))
+                .andExpect(jsonPath("$.data.itemSettlements[0].failureReason").value("PLAY_TYPE_ERROR"));
+
+        assertThat(jdbcTemplate.queryForObject(
+                "select plan_status from simulated_plan where plan_id = ?", String.class, planId))
+                .isEqualTo("PENDING_RESULT");
+    }
+
     private String createSavedPlan() throws Exception {
+        String reportId = insertAuthoritativeReportFixture();
         MvcResult simulateResult = mockMvc.perform(post("/api/strategies/simulate")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "reportId": "analysis-review-001",
-                                  "snapshotId": "snapshot-review-001",
-                                  "inputSourceType": "USER_SCREENSHOT_CONFIRMED",
-                                  "engineType": "MOCK_RULE_ENGINE",
-                                  "reportStatus": "GENERATED",
-                                  "currency": "CNY",
-                                  "budgetAmount": 20,
-                                  "probabilityAnalysis": [
-                                    {
-                                      "matchId": "demo-match-001",
-                                      "matchDate": "2026-07-01",
-                                      "league": "Fictional Coastal League",
-                                      "homeTeam": "Northport United",
-                                      "awayTeam": "Lakeside City",
-                                      "kickoffTime": "2026-07-01T19:30:00+08:00",
-                                      "selection": "AWAY_WIN",
-                                      "probabilityBand": "MEDIUM",
-                                      "rationale": "用于阶段 7 复盘测试的虚构分析。"
-                                    }
-                                  ],
-                                  "simulatedSelections": [
-                                    {
-                                      "matchId": "demo-match-001",
-                                      "playType": "WIN_DRAW_LOSS",
-                                      "selection": "AWAY_WIN",
-                                      "odds": 2.05,
-                                      "stakeAmount": 10,
-                                      "note": "模拟选择，用于复盘测试。"
-                                    }
-                                  ]
+                                  "reportId": "%s"
                                 }
-                                """))
-                .andExpect(status().isOk())
+                                """.formatted(reportId)))
+                .andExpect(status().isCreated())
                 .andReturn();
 
         String generatedPlanId = JsonPath.read(
@@ -311,6 +365,7 @@ class ReviewWorkflowControllerTest {
                 "$.data.planId");
 
         MvcResult saveResult = mockMvc.perform(post("/api/simulated-plans")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -324,6 +379,103 @@ class ReviewWorkflowControllerTest {
         return JsonPath.read(
                 saveResult.getResponse().getContentAsString(StandardCharsets.UTF_8),
                 "$.data.planId");
+    }
+
+    private String insertLegacyPendingHandicapPlan() {
+        String suffix = UUID.randomUUID().toString();
+        String planId = "legacy-review-plan-" + suffix;
+        StrategyParameterRequest strategy = new StrategyParameterRequest(
+                new BigDecimal("20.00"), "CNY", 1, 1, 1, "BALANCED",
+                new BigDecimal("0.60"), new BigDecimal("0.30"), new BigDecimal("0.10"), true,
+                new BigDecimal("2.00"), 1,
+                List.of("WIN_DRAW_LOSS", "HANDICAP_WIN_DRAW_LOSS"), List.of(), "DISABLED",
+                null, false, "BALANCED");
+        SimulatedPlanItemResponse item = new SimulatedPlanItemResponse(
+                "legacy-review-item-" + suffix,
+                "demo-match-001",
+                "2026-07-01",
+                "Fictional Coastal League",
+                "Northport United",
+                "Lakeside City",
+                "2026-07-01T19:30:00+08:00",
+                "HANDICAP_WIN_DRAW_LOSS",
+                "AWAY_WIN",
+                new BigDecimal("2.0500"),
+                new BigDecimal("10.00"),
+                "GENERATED",
+                "Legacy handicap fixture.");
+        SimulatedPlanSnapshotResponse generatedSnapshot = new SimulatedPlanSnapshotResponse(
+                "legacy-plan-snapshot-" + suffix,
+                "legacy-snapshot-" + suffix,
+                "legacy-report-" + suffix,
+                "USER_SCREENSHOT_CONFIRMED",
+                "MOCK_RULE_ENGINE",
+                "GENERATED",
+                strategy,
+                1,
+                "GENERATED",
+                "2026-08-24T10:00:00+08:00");
+        SimulatedPlanResponse generated = new SimulatedPlanResponse(
+                planId, "SIMULATED_ONLY", "GENERATED", generatedSnapshot.reportId(),
+                generatedSnapshot.snapshotId(), "CNY", new BigDecimal("20.00"), strategy,
+                List.of("GENERATED"), List.of(item), generatedSnapshot, "Legacy research plan.", null,
+                "2026-08-24T10:00:00+08:00", "2026-08-24T10:00:00+08:00");
+        simulatedPlanRepository.savePlan(generated);
+        SimulatedPlanResponse pending = new SimulatedPlanResponse(
+                planId, generated.planType(), "PENDING_RESULT", generated.reportId(), generated.snapshotId(),
+                generated.currency(), generated.budgetAmount(), strategy,
+                List.of("GENERATED", "SAVED", "PENDING_RESULT"), List.of(item),
+                new SimulatedPlanSnapshotResponse(
+                        generatedSnapshot.planSnapshotId(), generatedSnapshot.snapshotId(),
+                        generatedSnapshot.reportId(), generatedSnapshot.inputSourceType(),
+                        generatedSnapshot.engineType(), generatedSnapshot.sourceReportStatus(), strategy, 1,
+                        "PENDING_RESULT", generatedSnapshot.capturedAt()),
+                generated.complianceNotice(), "Legacy saved.", generated.createdAt(),
+                "2026-08-24T10:01:00+08:00");
+        simulatedPlanRepository.savePlan(pending);
+        return planId;
+    }
+
+    private String insertAuthoritativeReportFixture() throws Exception {
+        String suffix = UUID.randomUUID().toString();
+        String workflowId = "workflow-review-" + suffix;
+        String screenshotId = "shot-review-" + suffix;
+        String ocrId = "ocr-review-" + suffix;
+        String snapshotId = "snapshot-review-" + suffix;
+        String reportId = "analysis-review-" + suffix;
+        String now = "2026-08-24T10:00:00+08:00";
+        List<ConfirmedMatchResponse> matches = List.of(new ConfirmedMatchResponse(
+                "demo-match-001", "2026-07-01", "Fictional Coastal League",
+                "Northport United", "Lakeside City", "2026-07-01T19:30:00+08:00"));
+        List<ConfirmedMarketResponse> markets = List.of(new ConfirmedMarketResponse(
+                "market-review-" + suffix, "demo-match-001", "WIN_DRAW_LOSS", "AWAY_WIN",
+                new BigDecimal("2.0500")));
+        jdbcTemplate.update("insert into ocr_workflow (workflow_id,current_stage,version,current_ocr_task_id,confirmed_snapshot_id,current_report_id,created_at,updated_at) values (?,'ANALYSIS_GENERATED',4,?,?,?,?,?)",
+                workflowId, ocrId, snapshotId, reportId, now, now);
+        jdbcTemplate.update("insert into screenshot_task (task_id,file_name,content_type,file_size,sample_label,status,server_ocr_enabled,privacy_policy,created_at,workflow_id) values (?,'review.png','image/png',1,'FICTIONAL_SAMPLE','CREATED',false,'LOCAL_ONLY',?,?)",
+                screenshotId, now, workflowId);
+        jdbcTemplate.update("insert into ocr_task (ocr_task_id,screenshot_task_id,ocr_provider,status,analysis_allowed,parsed_at,workflow_id) values (?,?,'LOCAL_BROWSER','PARSED',true,?,?)",
+                ocrId, screenshotId, now, workflowId);
+        jdbcTemplate.update("insert into ocr_confirmed_snapshot (snapshot_id,ocr_task_id,source_type,snapshot_status,analysis_allowed,risk_preference,budget_amount,currency,matches_json,markets_json,payload_json,confirmed_at,workflow_id,confirmed_revision,authority_type,provenance_json,schema_version) values (?,?,'USER_SCREENSHOT_CONFIRMED','CONFIRMED',true,'BALANCED',20.00,'CNY',?,?,'{}',?,?,7,'SERVER_CONFIRMED_V2','{}','CONFIRMED_SNAPSHOT_V2')",
+                snapshotId, ocrId, objectMapper.writeValueAsString(matches), objectMapper.writeValueAsString(markets), now, workflowId);
+        StrategyParameterRequest strategy = new StrategyParameterRequest(
+                new BigDecimal("20.00"), "CNY", 1, 1, 1, "BALANCED",
+                new BigDecimal("0.60"), new BigDecimal("0.30"), new BigDecimal("0.10"), true,
+                new BigDecimal("2.00"), 1, List.of("WIN_DRAW_LOSS"), List.of(), "DISABLED",
+                null, false, "BALANCED");
+        analysisReportRepository.insertV2(new AnalysisReportV2Record(
+                workflowId, reportId, snapshotId, 7, AnalysisReportV2Record.AUTHORITY_TYPE,
+                "USER_SCREENSHOT_CONFIRMED", "MOCK_RULE_ENGINE", "GENERATED", strategy,
+                "STRATEGY_DEFAULTS_V2", List.of(new ProbabilityInsightResponse(
+                        "demo-match-001", "2026-07-01", "Fictional Coastal League",
+                        "2026-07-01T19:30:00+08:00", "Northport United", "Lakeside City",
+                        "AWAY_WIN", "MEDIUM", "Persisted review fixture.")),
+                List.of(new RiskWarningResponse("INFO_RISK", "MEDIUM", "Review fixture risk.")),
+                List.of(new SimulatedSelectionResponse(
+                        "demo-match-001", "WIN_DRAW_LOSS", "AWAY_WIN", new BigDecimal("2.0500"),
+                        new BigDecimal("10.00"), "Persisted review selection.")),
+                "For research only.", now, null, null, null, "PASSED", null, null));
+        return reportId;
     }
 
     private String llmResponseBody(String content) throws Exception {

@@ -331,7 +331,7 @@ public class AnalysisTransactionCoordinator {
                 WorkflowOperationType.GENERATE_REPORT,
                 requestHash,
                 now);
-        if (reservation.status() == ReservationStatus.REPLAY) {
+        if (reservation.status() != ReservationStatus.RESERVED) {
             return;
         }
         boolean completed = operationService.completeFailure(
