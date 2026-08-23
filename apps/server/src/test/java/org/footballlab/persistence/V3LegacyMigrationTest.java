@@ -134,6 +134,7 @@ class V3LegacyMigrationTest {
         Flyway.configure()
                 .dataSource(url, "sa", "")
                 .locations("classpath:db/migration")
+                .target("3")
                 .load()
                 .migrate();
         return url;
@@ -144,6 +145,7 @@ class V3LegacyMigrationTest {
         Flyway.configure()
                 .dataSource(url, "sa", "")
                 .locations("classpath:db/migration")
+                .target("3")
                 .load()
                 .migrate();
         return url;
