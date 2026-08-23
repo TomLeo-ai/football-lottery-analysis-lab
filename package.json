@@ -22,6 +22,7 @@
     "test:ocr-core": "npm run test -w packages/ocr-core",
     "test:ocr-fixtures": "node --test scripts/fictional-ocr-sample.spec.mjs",
     "test:real-ocr-smoke": "node --test scripts/real-ocr-browser-smoke.spec.mjs",
+    "test:isolated-runtime": "node --test scripts/lib/isolated-runtime.spec.mjs",
     "test:stage8-config": "node scripts/stage8-config.spec.mjs",
     "test:server": "mvn -f apps/server/pom.xml test",
     "test:web": "npm run test -w apps/web",

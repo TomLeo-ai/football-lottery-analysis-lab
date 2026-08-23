@@ -1,10 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { strict as assert } from 'node:assert';
 import { isMap, isScalar, isSeq, parseDocument, Scalar } from 'yaml';
-import {
-  createStage8DataSourceUrl,
-  createStage8SpawnOptions
-} from './stage8-runtime.mjs';
 
 const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 const workflow = readFileSync(new URL('../.github/workflows/compliance.yml', import.meta.url), 'utf8');
@@ -24,43 +20,9 @@ assert.ok(packageJson.scripts['smoke:stage8'], 'package.json must expose smoke:s
 assert.ok(packageJson.scripts['smoke:deepseek'], 'package.json must expose smoke:deepseek');
 assert.ok(packageJson.scripts['test:deepseek-smoke'], 'package.json must expose test:deepseek-smoke');
 assert.ok(packageJson.scripts['verify:stage8'], 'package.json must expose verify:stage8');
-const firstStage8DataSourceUrl = createStage8DataSourceUrl({}, () =>
-  '11111111-1111-4111-8111-111111111111'
-);
-const secondStage8DataSourceUrl = createStage8DataSourceUrl({}, () =>
-  '22222222-2222-4222-8222-222222222222'
-);
-assert.match(firstStage8DataSourceUrl, /^jdbc:h2:mem:stage8_11111111111141118111111111111111;/);
-assert.notEqual(
-  firstStage8DataSourceUrl,
-  secondStage8DataSourceUrl,
-  'Stage 8 smoke must create a fresh database name for every run'
-);
 assert.equal(
-  createStage8DataSourceUrl({ STAGE8_DATASOURCE_URL: 'jdbc:h2:mem:explicit_stage8' }),
-  'jdbc:h2:mem:explicit_stage8',
-  'Stage 8 smoke must preserve an explicit datasource override'
-);
-const stage8BaseEnv = { EXISTING_SETTING: 'preserved' };
-const stage8ServerSpawnOptions = createStage8SpawnOptions({
-  name: 'server',
-  rootDir: 'stage8-root',
-  platform: 'linux',
-  baseEnv: stage8BaseEnv,
-  dataSourceUrl: firstStage8DataSourceUrl
-});
-assert.equal(stage8ServerSpawnOptions.env.SPRING_DATASOURCE_URL, firstStage8DataSourceUrl);
-assert.equal(stage8ServerSpawnOptions.env.EXISTING_SETTING, 'preserved');
-assert.equal(
-  createStage8SpawnOptions({
-    name: 'web',
-    rootDir: 'stage8-root',
-    platform: 'linux',
-    baseEnv: stage8BaseEnv,
-    dataSourceUrl: firstStage8DataSourceUrl
-  }).env,
-  stage8BaseEnv,
-  'Stage 8 web spawn must keep the caller environment unchanged'
+  packageJson.scripts['test:isolated-runtime'],
+  'node --test scripts/lib/isolated-runtime.spec.mjs'
 );
 assert.equal(
   packageJson.scripts['check:community-templates'],
