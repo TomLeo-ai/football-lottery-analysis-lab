@@ -2,18 +2,32 @@ package org.footballlab.llm;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.footballlab.analysis.domain.AnalysisMarketRequest;
+import org.footballlab.analysis.domain.AnalysisMatchRequest;
+import org.footballlab.analysis.domain.AnalysisReportResponse;
+import org.footballlab.analysis.domain.ResolvedAnalysisEngineConfiguration;
+import org.footballlab.analysis.service.AnalysisEngineContext;
+import org.footballlab.analysis.service.AuthoritativeAnalysisInput;
+import org.footballlab.analysis.service.OpenAiCompatibleAnalysisEngine;
+import org.footballlab.llm.domain.LlmHttpRequest;
 import org.footballlab.llm.domain.LlmHttpResponse;
 import org.footballlab.llm.service.LlmHttpTransport;
+import org.footballlab.strategy.domain.StrategyParameterRequest;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -39,6 +53,9 @@ class LlmInvocationAuditTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private OpenAiCompatibleAnalysisEngine openAiCompatibleAnalysisEngine;
+
     @MockBean
     private LlmHttpTransport llmHttpTransport;
 
@@ -46,22 +63,17 @@ class LlmInvocationAuditTest {
     void shouldPersistPredictionAuditWithHashesAndReturnAuditId() throws Exception {
         when(llmHttpTransport.exchange(any()))
                 .thenReturn(new LlmHttpResponse(200, llmResponseBody(validPredictionOutput(), 101, 202, 303), 88));
+        AnalysisEngineContext context = predictionContext("openai", "gpt-4o-mini");
 
-        MvcResult result = mockMvc.perform(post("/api/analysis/generate")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(openAiCompatibleAnalysisRequest()))
-                .andExpect(status().isOk())
-                .andReturn();
-
-        JsonNode response = readData(result);
-        String auditId = response.path("llmAuditId").asText();
+        AnalysisReportResponse response = openAiCompatibleAnalysisEngine.generate(context).report();
+        String auditId = response.llmAuditId();
         assertThat(auditId).isNotBlank();
 
         Map<String, Object> row = jdbcTemplate.queryForMap(
                 "select * from llm_invocation_audit where audit_id = ?",
                 auditId);
         assertThat(row.get("business_type")).isEqualTo("ANALYSIS_PREDICTION");
-        assertThat(row.get("business_id")).isEqualTo(response.path("reportId").asText());
+        assertThat(row.get("business_id")).isEqualTo(response.reportId());
         assertThat(row.get("provider_key")).isEqualTo("openai");
         assertThat(row.get("model_id")).isEqualTo("gpt-4o-mini");
         assertThat(row.get("prompt_version")).isEqualTo("danche-prediction-v1");
@@ -74,6 +86,9 @@ class LlmInvocationAuditTest {
         assertThat(row.get("safety_status")).isEqualTo("PASSED");
         assertThat(row.get("error_code")).isNull();
         assertAuditRowDoesNotContainRawSensitiveContent(row);
+        assertPredictionTransport(
+                "https://api.openai.com/v1/chat/completions",
+                "gpt-4o-mini");
     }
 
     @Test
@@ -83,26 +98,21 @@ class LlmInvocationAuditTest {
                         200,
                         llmResponseBody(markdownWrappedJson(validPredictionOutput()), 111, 222, 333),
                         91));
+        AnalysisEngineContext context = predictionContext("deepseek", "deepseek-v4-pro");
 
-        MvcResult result = mockMvc.perform(post("/api/analysis/generate")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(deepSeekCompatibleAnalysisRequest()))
-                .andExpect(status().isOk())
-                .andReturn();
-
-        JsonNode response = readData(result);
-        String auditId = response.path("llmAuditId").asText();
+        AnalysisReportResponse response = openAiCompatibleAnalysisEngine.generate(context).report();
+        String auditId = response.llmAuditId();
         assertThat(auditId).isNotBlank();
-        assertThat(response.path("providerKey").asText()).isEqualTo("deepseek");
-        assertThat(response.path("modelId").asText()).isEqualTo("deepseek-v4-pro");
-        assertThat(response.path("promptVersion").asText()).isEqualTo("danche-prediction-v1");
-        assertThat(response.path("safetyStatus").asText()).isEqualTo("PASSED");
+        assertThat(response.providerKey()).isEqualTo("deepseek");
+        assertThat(response.modelId()).isEqualTo("deepseek-v4-pro");
+        assertThat(response.promptVersion()).isEqualTo("danche-prediction-v1");
+        assertThat(response.safetyStatus()).isEqualTo("PASSED");
 
         Map<String, Object> row = jdbcTemplate.queryForMap(
                 "select * from llm_invocation_audit where audit_id = ?",
                 auditId);
         assertThat(row.get("business_type")).isEqualTo("ANALYSIS_PREDICTION");
-        assertThat(row.get("business_id")).isEqualTo(response.path("reportId").asText());
+        assertThat(row.get("business_id")).isEqualTo(response.reportId());
         assertThat(row.get("provider_key")).isEqualTo("deepseek");
         assertThat(row.get("model_id")).isEqualTo("deepseek-v4-pro");
         assertThat(row.get("prompt_version")).isEqualTo("danche-prediction-v1");
@@ -115,6 +125,9 @@ class LlmInvocationAuditTest {
         assertThat(row.get("safety_status")).isEqualTo("PASSED");
         assertThat(row.get("error_code")).isNull();
         assertAuditRowDoesNotContainRawSensitiveContent(row);
+        assertPredictionTransport(
+                "https://api.deepseek.com/chat/completions",
+                "deepseek-v4-pro");
     }
 
     @Test
@@ -229,6 +242,81 @@ class LlmInvocationAuditTest {
         assertAuditRowDoesNotContainRawSensitiveContent(row);
     }
 
+    private AnalysisEngineContext predictionContext(String providerKey, String modelId) {
+        return new AnalysisEngineContext(
+                "analysis-llm-audit-" + UUID.randomUUID(),
+                "2026-08-23T17:00:00+08:00",
+                predictionInput(),
+                new ResolvedAnalysisEngineConfiguration(
+                        "OPENAI_COMPATIBLE",
+                        providerKey,
+                        modelId,
+                        "danche-prediction-v1"),
+                predictionStrategyParameters());
+    }
+
+    private AuthoritativeAnalysisInput predictionInput() {
+        return new AuthoritativeAnalysisInput(
+                "workflow-llm-audit-001",
+                "snapshot-llm-audit-001",
+                "SERVER_CONFIRMED_V2",
+                "USER_SCREENSHOT_CONFIRMED",
+                "CONFIRMED",
+                true,
+                new BigDecimal("20.00"),
+                "CNY",
+                "BALANCED",
+                "2026-08-23T16:59:00+08:00",
+                List.of(new AnalysisMatchRequest(
+                        "demo-match-001",
+                        "2026-07-01",
+                        "Fictional Coastal League",
+                        "Northport United",
+                        "Lakeside City",
+                        "2026-07-01T19:30:00+08:00")),
+                List.of(new AnalysisMarketRequest(
+                        "demo-market-001",
+                        "demo-match-001",
+                        "WIN_DRAW_LOSS",
+                        "HOME_WIN",
+                        new BigDecimal("2.0500"))));
+    }
+
+    private StrategyParameterRequest predictionStrategyParameters() {
+        return new StrategyParameterRequest(
+                new BigDecimal("20.00"),
+                "CNY",
+                1,
+                1,
+                2,
+                "BALANCED",
+                new BigDecimal("0.6"),
+                new BigDecimal("0.3"),
+                new BigDecimal("0.1"),
+                true,
+                new BigDecimal("2.00"),
+                2,
+                List.of("WIN_DRAW_LOSS"),
+                List.of("EXACT_SCORE"),
+                "DISABLED",
+                null,
+                false,
+                "BALANCED");
+    }
+
+    private void assertPredictionTransport(String expectedUrl, String expectedModel) {
+        ArgumentCaptor<LlmHttpRequest> requestCaptor = ArgumentCaptor.forClass(LlmHttpRequest.class);
+        verify(llmHttpTransport).exchange(requestCaptor.capture());
+        LlmHttpRequest request = requestCaptor.getValue();
+        assertThat(request.url()).isEqualTo(expectedUrl);
+        assertThat(request.authorizationHeader()).isEqualTo("Bearer unit-test-secret");
+        assertThat(request.body())
+                .contains("snapshot-llm-audit-001")
+                .contains("\"model\":\"" + expectedModel + "\"")
+                .doesNotContain("unit-test-secret");
+        assertThat(request.toString()).doesNotContain("unit-test-secret");
+    }
+
     private void assertAuditRowDoesNotContainRawSensitiveContent(Map<String, Object> row) {
         String serializedRow = row.toString();
         assertThat(serializedRow)
@@ -311,64 +399,6 @@ class LlmInvocationAuditTest {
                 .andExpect(status().isOk())
                 .andReturn();
         return readData(saveResult).path("planId").asText();
-    }
-
-    private static String openAiCompatibleAnalysisRequest() {
-        return """
-                {
-                  "snapshotId": "snapshot-llm-audit-001",
-                  "sourceType": "USER_SCREENSHOT_CONFIRMED",
-                  "analysisAllowed": true,
-                  "engineMode": "OPENAI_COMPATIBLE",
-                  "providerKey": "openai",
-                  "modelId": "gpt-4o-mini",
-                  "promptVersion": "danche-prediction-v1",
-                  "strategyParameters": {
-                    "budgetAmount": 20,
-                    "currency": "CNY",
-                    "targetTicketCount": 1,
-                    "minTicketCount": 1,
-                    "maxTicketCount": 2,
-                    "riskPreference": "BALANCED",
-                    "mainTicketRatio": 0.6,
-                    "defensiveTicketRatio": 0.3,
-                    "entertainmentTicketRatio": 0.1,
-                    "enableEntertainmentTicket": true,
-                    "entertainmentTicketMaxCost": 2,
-                    "maxParlayLegs": 2,
-                    "preferredPlayTypes": ["WIN_DRAW_LOSS"],
-                    "excludedPlayTypes": ["EXACT_SCORE"],
-                    "exactScorePolicy": "DISABLED",
-                    "allowLowReturnTicket": false,
-                    "upsetCoverageLevel": "BALANCED"
-                  },
-                  "matches": [
-                    {
-                      "matchId": "demo-match-001",
-                      "matchDate": "2026-07-01",
-                      "league": "Fictional Coastal League",
-                      "homeTeam": "Northport United",
-                      "awayTeam": "Lakeside City",
-                      "kickoffTime": "2026-07-01T19:30:00+08:00"
-                    }
-                  ],
-                  "markets": [
-                    {
-                      "marketId": "demo-market-001",
-                      "matchId": "demo-match-001",
-                      "playType": "WIN_DRAW_LOSS",
-                      "selection": "HOME_WIN",
-                      "odds": 2.05
-                    }
-                  ]
-                }
-                """;
-    }
-
-    private static String deepSeekCompatibleAnalysisRequest() {
-        return openAiCompatibleAnalysisRequest()
-                .replace("\"providerKey\": \"openai\"", "\"providerKey\": \"deepseek\"")
-                .replace("\"modelId\": \"gpt-4o-mini\"", "\"modelId\": \"deepseek-v4-pro\"");
     }
 
     private static String markdownWrappedJson(String json) {
