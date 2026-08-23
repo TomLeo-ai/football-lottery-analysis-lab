@@ -5,10 +5,15 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { strict as assert } from 'node:assert';
 import { chromium } from '@playwright/test';
+import {
+  createStage8DataSourceUrl,
+  createStage8SpawnOptions
+} from './stage8-runtime.mjs';
 
 const rootDir = fileURLToPath(new URL('..', import.meta.url));
 const apiBase = process.env.STAGE8_API_BASE ?? 'http://127.0.0.1:8080';
 const webBase = process.env.STAGE8_WEB_BASE ?? 'http://127.0.0.1:5173';
+const stage8DataSourceUrl = createStage8DataSourceUrl();
 const spawned = [];
 
 async function main() {
@@ -34,12 +39,11 @@ async function ensureServices() {
 }
 
 function spawnService(name, command, port) {
-  const child = spawn(command, {
-    cwd: rootDir,
-    detached: process.platform !== 'win32',
-    shell: true,
-    stdio: ['ignore', 'pipe', 'pipe']
-  });
+  const child = spawn(command, createStage8SpawnOptions({
+    name,
+    rootDir,
+    dataSourceUrl: stage8DataSourceUrl
+  }));
 
   child.stdout.on('data', (chunk) => process.stdout.write(`[${name}] ${chunk}`));
   child.stderr.on('data', (chunk) => process.stderr.write(`[${name}] ${chunk}`));
