@@ -32,7 +32,9 @@ test('Windows command selection keeps executable paths and arguments separate wi
     toolPaths: { npm: 'C:\\Program Files\\nodejs\\npm.cmd' },
     spawnImpl(command, args, options) {
       calls.push({ command, args, options });
-      queueMicrotask(() => child.stdout.write('Local: http://127.0.0.1:43123/\n'));
+      queueMicrotask(() => child.stdout.write(
+        '\u001b[32mLocal:\u001b[39m http://127.0.0.1:\u001b[1m43123\u001b[22m/\n'
+      ));
       return child;
     }
   });

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -35,10 +35,26 @@ async function main() {
   });
   apiBase = `http://127.0.0.1:${server.readyValue}`;
 
+  let webPort;
+  do {
+    webPort = randomInt(49_152, 65_536);
+  } while (webPort === server.readyValue);
+
   const web = await runtime.startProcess({
     name: 'web',
     tool: 'npm',
-    args: ['run', 'dev', '-w', 'apps/web', '--', '--host', '127.0.0.1', '--port', '0', '--strictPort'],
+    args: [
+      'run',
+      'dev',
+      '-w',
+      'apps/web',
+      '--',
+      '--host',
+      '127.0.0.1',
+      '--port',
+      String(webPort),
+      '--strictPort'
+    ],
     cwd: rootDir,
     env: { ...process.env, LOCAL_API_TARGET: apiBase },
     readiness: /Local:\s+http:\/\/127\.0\.0\.1:(\d+)/,

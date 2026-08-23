@@ -93,6 +93,10 @@ function stripControlCharacters(value) {
   return value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '');
 }
 
+function stripAnsiSequences(value) {
+  return value.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '');
+}
+
 export function createIsolatedRuntime({
   platform = process.platform,
   environment = process.env,
@@ -231,10 +235,11 @@ function waitForReadiness(child, {
       const lines = combined.split(/\r?\n/);
       buffers.set(stream, lines.pop() ?? '');
       for (const line of lines) {
+        const readinessLine = stripAnsiSequences(line);
         readiness.lastIndex = 0;
-        const match = readiness.exec(line);
+        const match = readiness.exec(readinessLine);
         if (match) {
-          succeed(readyValue(match, line));
+          succeed(readyValue(match, readinessLine));
           return;
         }
       }
