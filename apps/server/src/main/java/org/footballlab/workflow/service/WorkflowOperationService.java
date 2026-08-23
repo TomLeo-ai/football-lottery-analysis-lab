@@ -54,6 +54,16 @@ public class WorkflowOperationService {
         return operationRepository.completeFailure(idempotencyKey, errorCode, httpStatus, updatedAt);
     }
 
+    @Transactional
+    public boolean interruptInProgress(
+            String idempotencyKey,
+            WorkflowOperationType operationType,
+            int httpStatus,
+            String updatedAt) {
+        return operationRepository.interruptInProgress(
+                idempotencyKey, operationType, httpStatus, updatedAt);
+    }
+
     private Reservation createReservation(
             String idempotencyKey,
             String workflowId,

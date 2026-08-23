@@ -2,6 +2,7 @@ package org.footballlab.workflow.repository;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.List;
 import java.util.Optional;
 
 import org.footballlab.workflow.domain.WorkflowOperationRecord;
@@ -126,6 +127,83 @@ public class JdbcWorkflowOperationRepository implements WorkflowOperationReposit
                 updatedAt,
                 idempotencyKey,
                 WorkflowOperationStatus.IN_PROGRESS.name());
+        return updatedRows == 1;
+    }
+
+    @Override
+    public boolean interruptInProgress(
+            String idempotencyKey,
+            WorkflowOperationType operationType,
+            int httpStatus,
+            String updatedAt) {
+        int updatedRows = jdbcTemplate.update("""
+                        update workflow_operation
+                        set operation_status = ?,
+                            result_type = null,
+                            result_id = null,
+                            error_code = ?,
+                            http_status = ?,
+                            updated_at = ?
+                        where idempotency_key = ?
+                          and operation_type = ?
+                          and operation_status = ?
+                        """,
+                WorkflowOperationStatus.INTERRUPTED.name(),
+                "OPERATION_INTERRUPTED",
+                httpStatus,
+                updatedAt,
+                idempotencyKey,
+                operationType.name(),
+                WorkflowOperationStatus.IN_PROGRESS.name());
+        return updatedRows == 1;
+    }
+
+    @Override
+    public List<WorkflowOperationRecord> findStaleInProgress(
+            WorkflowOperationType operationType,
+            String cutoff) {
+        return jdbcTemplate.query("""
+                        select *
+                        from workflow_operation
+                        where operation_status = ?
+                          and operation_type = ?
+                          and updated_at <= ?
+                        order by updated_at, idempotency_key
+                        """,
+                this::mapOperation,
+                WorkflowOperationStatus.IN_PROGRESS.name(),
+                operationType.name(),
+                cutoff);
+    }
+
+    @Override
+    public boolean interruptStale(
+            String idempotencyKey,
+            WorkflowOperationType operationType,
+            String cutoff,
+            int httpStatus,
+            String updatedAt) {
+        int updatedRows = jdbcTemplate.update("""
+                        update workflow_operation
+                        set operation_status = ?,
+                            result_type = null,
+                            result_id = null,
+                            error_code = ?,
+                            http_status = ?,
+                            updated_at = ?
+                        where idempotency_key = ?
+                          and operation_type = ?
+                          and operation_status = ?
+                          and updated_at <= ?
+                        """,
+                WorkflowOperationStatus.INTERRUPTED.name(),
+                "OPERATION_INTERRUPTED",
+                httpStatus,
+                updatedAt,
+                idempotencyKey,
+                operationType.name(),
+                WorkflowOperationStatus.IN_PROGRESS.name(),
+                cutoff);
         return updatedRows == 1;
     }
 

@@ -161,6 +161,48 @@ public class JdbcWorkflowRepository implements WorkflowRepository {
         return updatedRows == 1;
     }
 
+    @Override
+    public boolean transitionClaimed(
+            String workflowId,
+            long expectedVersion,
+            WorkflowStage expectedStage,
+            WorkflowStage nextStage,
+            WorkflowOperationType operationType,
+            String operationKey,
+            String currentReportId,
+            String updatedAt
+    ) {
+        if (!expectedStage.canTransitionTo(nextStage)) {
+            throw new ApiException(
+                    HttpStatus.CONFLICT,
+                    "ILLEGAL_WORKFLOW_TRANSITION",
+                    "Workflow stage transition is not allowed.");
+        }
+        int updatedRows = jdbcTemplate.update("""
+                        update ocr_workflow
+                        set current_stage = ?,
+                            current_report_id = ?,
+                            active_operation_type = null,
+                            active_operation_key = null,
+                            version = version + 1,
+                            updated_at = ?
+                        where workflow_id = ?
+                          and version = ?
+                          and current_stage = ?
+                          and active_operation_type = ?
+                          and active_operation_key = ?
+                        """,
+                nextStage.name(),
+                currentReportId,
+                updatedAt,
+                workflowId,
+                expectedVersion,
+                expectedStage.name(),
+                operationType.name(),
+                operationKey);
+        return updatedRows == 1;
+    }
+
     private WorkflowRecord mapWorkflow(ResultSet resultSet, int rowNumber) throws SQLException {
         String activeOperationType = resultSet.getString("active_operation_type");
         return new WorkflowRecord(

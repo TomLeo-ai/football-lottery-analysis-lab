@@ -21,6 +21,7 @@ import org.footballlab.analysis.domain.AnalysisMatchRequest;
 import org.footballlab.analysis.domain.AnalysisReportResponse;
 import org.footballlab.analysis.domain.ResolvedAnalysisEngineConfiguration;
 import org.footballlab.analysis.service.AnalysisEngineContext;
+import org.footballlab.analysis.service.AnalysisEngineInvocationException;
 import org.footballlab.analysis.service.AnalysisEngineResult;
 import org.footballlab.analysis.service.AuthoritativeAnalysisInput;
 import org.footballlab.analysis.service.MockRuleAnalysisEngine;
@@ -30,22 +31,28 @@ import org.footballlab.llm.domain.LlmHttpResponse;
 import org.footballlab.llm.service.LlmHttpTransport;
 import org.footballlab.strategy.domain.StrategyParameterRequest;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.web.server.ResponseStatusException;
 
 @SpringBootTest(properties = {
         "spring.datasource.url=jdbc:h2:mem:analysis_engine_tests;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1",
-        "OPENAI_API_KEY=unit-test-secret"
+        "OPENAI_API_KEY=api-key-sentinel-engine-do-not-leak"
 })
 @AutoConfigureMockMvc
+@ExtendWith(OutputCaptureExtension.class)
 class AnalysisEngineTest {
+
+    private static final String PROMPT_SENTINEL = "prompt-sentinel-engine-do-not-leak";
+    private static final String RAW_OUTPUT_SENTINEL = "raw-selection-sentinel-engine-do-not-leak";
 
     @Autowired
     private MockMvc mockMvc;
@@ -90,7 +97,8 @@ class AnalysisEngineTest {
                 .thenReturn(new LlmHttpResponse(200, llmResponseBody(validLlmOutput()), 88));
         AnalysisEngineContext context = openAiContext("openai");
 
-        AnalysisReportResponse report = openAiCompatibleAnalysisEngine.generate(context).report();
+        AnalysisEngineResult result = openAiCompatibleAnalysisEngine.generate(context);
+        AnalysisReportResponse report = result.report();
 
         assertThat(report.engineType()).isEqualTo("OPENAI_COMPATIBLE");
         assertThat(report.providerKey()).isEqualTo("openai");
@@ -106,29 +114,71 @@ class AnalysisEngineTest {
         assertThat(jdbcTemplate.queryForObject(
                 "select count(*) from llm_invocation_audit where business_id = ?",
                 Integer.class,
-                context.reportId())).isEqualTo(1);
+                context.reportId())).isZero();
+        assertThat(result.successAudit()).isNotNull();
+        assertThat(result.successAudit().auditId()).isEqualTo(report.llmAuditId());
+        assertThat(result.successAudit().businessId()).isEqualTo(context.reportId());
 
         ArgumentCaptor<LlmHttpRequest> requestCaptor = ArgumentCaptor.forClass(LlmHttpRequest.class);
         verify(llmHttpTransport).exchange(requestCaptor.capture());
         assertThat(requestCaptor.getValue().url()).isEqualTo("https://api.openai.com/v1/chat/completions");
-        assertThat(requestCaptor.getValue().authorizationHeader()).isEqualTo("Bearer unit-test-secret");
+        assertThat(requestCaptor.getValue().authorizationHeader())
+                .isEqualTo("Bearer api-key-sentinel-engine-do-not-leak");
         assertThat(requestCaptor.getValue().body())
                 .contains("snapshot-engine-001")
                 .contains("danche-prediction-v1")
                 .contains("\"model\":\"gpt-4o-mini\"");
-        assertThat(requestCaptor.getValue().toString()).doesNotContain("unit-test-secret");
+        assertThat(requestCaptor.getValue().toString()).doesNotContain("api-key-sentinel-engine-do-not-leak");
     }
 
     @Test
     void openAiCompatibleEngineRejectsMissingProviderCredentialBeforeTransport() {
         assertThatThrownBy(() -> openAiCompatibleAnalysisEngine.generate(openAiContext("deepseek")))
-                .isInstanceOf(ResponseStatusException.class);
+                .isInstanceOf(AnalysisEngineInvocationException.class)
+                .satisfies(exception -> {
+                    AnalysisEngineInvocationException failure = (AnalysisEngineInvocationException) exception;
+                    assertThat(failure.failureAudit().businessId()).startsWith("analysis-engine-");
+                    assertThat(failure.toString()).doesNotContain("api-key-sentinel-engine-do-not-leak");
+                });
 
         verifyNoInteractions(llmHttpTransport);
     }
 
     @Test
-    void task4ServiceRejectsExternalEngineBeforeTransportInvocation() throws Exception {
+    void validationFailureUsesFixedSafeCodeWithoutSecretsInExceptionAuditOrLogs(CapturedOutput output)
+            throws Exception {
+        when(llmHttpTransport.exchange(any()))
+                .thenReturn(new LlmHttpResponse(
+                        200,
+                        llmResponseBody(validLlmOutput().replace("HOME_WIN", RAW_OUTPUT_SENTINEL)),
+                        88));
+
+        assertThatThrownBy(() -> openAiCompatibleAnalysisEngine.generate(promptSentinelContext()))
+                .isInstanceOf(AnalysisEngineInvocationException.class)
+                .satisfies(exception -> {
+                    AnalysisEngineInvocationException failure = (AnalysisEngineInvocationException) exception;
+                    assertThat(failure.errorCode()).isEqualTo("LLM_OUTPUT_VALIDATION_FAILED");
+                    assertThat(failure.getMessage())
+                            .doesNotContain(PROMPT_SENTINEL)
+                            .doesNotContain(RAW_OUTPUT_SENTINEL)
+                            .doesNotContain("api-key-sentinel-engine-do-not-leak");
+                    assertThat(failure.toString())
+                            .doesNotContain(PROMPT_SENTINEL)
+                            .doesNotContain(RAW_OUTPUT_SENTINEL)
+                            .doesNotContain("api-key-sentinel-engine-do-not-leak");
+                    assertThat(failure.failureAudit().toString())
+                            .doesNotContain(PROMPT_SENTINEL)
+                            .doesNotContain(RAW_OUTPUT_SENTINEL)
+                            .doesNotContain("api-key-sentinel-engine-do-not-leak");
+                });
+        assertThat(output.getAll())
+                .doesNotContain(PROMPT_SENTINEL)
+                .doesNotContain(RAW_OUTPUT_SENTINEL)
+                .doesNotContain("api-key-sentinel-engine-do-not-leak");
+    }
+
+    @Test
+    void externalServiceValidatesSnapshotBeforeTransportInvocation() throws Exception {
         mockMvc.perform(post("/api/analysis/generate")
                         .header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -142,8 +192,8 @@ class AnalysisEngineTest {
                                   "analysisOptions": null
                                 }
                                 """))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.errorCode").value("UNSUPPORTED_ANALYSIS_ENGINE"));
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.errorCode").value("SNAPSHOT_NOT_FOUND"));
 
         verifyNoInteractions(llmHttpTransport);
     }
@@ -156,6 +206,39 @@ class AnalysisEngineTest {
                 new ResolvedAnalysisEngineConfiguration(
                         "OPENAI_COMPATIBLE",
                         providerKey,
+                        "gpt-4o-mini",
+                        "danche-prediction-v1"),
+                strategyParameters());
+    }
+
+    private AnalysisEngineContext promptSentinelContext() {
+        AuthoritativeAnalysisInput original = authoritativeInput();
+        AuthoritativeAnalysisInput sentinelInput = new AuthoritativeAnalysisInput(
+                original.workflowId(),
+                original.snapshotId(),
+                original.authorityType(),
+                original.sourceType(),
+                original.snapshotStatus(),
+                original.analysisAllowed(),
+                original.budgetAmount(),
+                original.currency(),
+                original.riskPreference(),
+                original.confirmedAt(),
+                List.of(new AnalysisMatchRequest(
+                        "match-engine-001",
+                        "2026-08-24",
+                        "Engine League",
+                        PROMPT_SENTINEL,
+                        "Engine South",
+                        "2026-08-24T19:30:00+08:00")),
+                original.markets());
+        return new AnalysisEngineContext(
+                "analysis-engine-" + UUID.randomUUID(),
+                "2026-08-23T15:01:00+08:00",
+                sentinelInput,
+                new ResolvedAnalysisEngineConfiguration(
+                        "OPENAI_COMPATIBLE",
+                        "openai",
                         "gpt-4o-mini",
                         "danche-prediction-v1"),
                 strategyParameters());

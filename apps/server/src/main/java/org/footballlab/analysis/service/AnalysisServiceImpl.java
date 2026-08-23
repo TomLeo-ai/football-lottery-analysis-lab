@@ -33,6 +33,7 @@ public class AnalysisServiceImpl implements AnalysisService {
     private final AnalysisEngineConfigurationResolver engineConfigurationResolver;
     private final RequestHashService requestHashService;
     private final AnalysisTransactionCoordinator transactionCoordinator;
+    private final OpenAiCompatibleAnalysisEngine externalEngine;
 
     public AnalysisServiceImpl(
             AnalysisReportRepository analysisReportRepository,
@@ -40,20 +41,22 @@ public class AnalysisServiceImpl implements AnalysisService {
             AnalysisOptionsResolver analysisOptionsResolver,
             AnalysisEngineConfigurationResolver engineConfigurationResolver,
             RequestHashService requestHashService,
-            AnalysisTransactionCoordinator transactionCoordinator) {
+            AnalysisTransactionCoordinator transactionCoordinator,
+            OpenAiCompatibleAnalysisEngine externalEngine) {
         this.analysisReportRepository = analysisReportRepository;
         this.ocrWorkflowRepository = ocrWorkflowRepository;
         this.analysisOptionsResolver = analysisOptionsResolver;
         this.engineConfigurationResolver = engineConfigurationResolver;
         this.requestHashService = requestHashService;
         this.transactionCoordinator = transactionCoordinator;
+        this.externalEngine = externalEngine;
     }
 
     @Override
     public AnalysisGenerationResult generateAnalysis(AnalysisGenerateRequest request, String idempotencyKey) {
         validateIdempotencyKey(idempotencyKey);
         validateRequest(request);
-        ResolvedAnalysisEngineConfiguration engineConfiguration = resolveRuleEngineConfiguration(request);
+        ResolvedAnalysisEngineConfiguration engineConfiguration = resolveEngineConfiguration(request);
         UserConfirmedSnapshotResponse hashSnapshot = ocrWorkflowRepository.findConfirmedSnapshot(request.snapshotId())
                 .orElseThrow(() -> new ApiException(
                         HttpStatus.NOT_FOUND,
@@ -61,8 +64,11 @@ public class AnalysisServiceImpl implements AnalysisService {
                         "Confirmed snapshot was not found."));
         ResolvedStrategyParameters resolvedOptions = resolveOptions(request, hashSnapshot);
         StrategyParameterRequest strategyParameters = AnalysisTransactionCoordinator.toStrategyParameters(resolvedOptions);
+        WorkflowOperationType operationType = MockRuleAnalysisEngine.ENGINE_MODE.equals(engineConfiguration.engineMode())
+                ? WorkflowOperationType.GENERATE_REPORT
+                : WorkflowOperationType.GENERATE_ANALYSIS;
         String requestHash = requestHashService.hash(
-                WorkflowOperationType.GENERATE_REPORT,
+                operationType,
                 "POST",
                 GENERATE_PATH,
                 canonicalHashFields(
@@ -71,6 +77,60 @@ public class AnalysisServiceImpl implements AnalysisService {
                         strategyParameters,
                         resolvedOptions.defaultsVersion()));
 
+        if (MockRuleAnalysisEngine.ENGINE_MODE.equals(engineConfiguration.engineMode())) {
+            return generateRuleAnalysis(
+                    idempotencyKey,
+                    request,
+                    hashSnapshot,
+                    requestHash,
+                    engineConfiguration,
+                    strategyParameters,
+                    resolvedOptions.defaultsVersion());
+        }
+
+        AnalysisTransactionCoordinator.ExternalClaimOutcome claim = transactionCoordinator.claimExternalAnalysis(
+                idempotencyKey,
+                request,
+                hashSnapshot.workflowId(),
+                requestHash,
+                engineConfiguration,
+                strategyParameters,
+                resolvedOptions.defaultsVersion());
+        if (claim.failure() != null) {
+            throw claim.failure();
+        }
+        if (claim.report() != null) {
+            return new AnalysisGenerationResult(claim.httpStatus(), claim.report());
+        }
+        AnalysisEngineResult generated;
+        try {
+            generated = externalEngine.generate(claim.prepared().toEngineContext());
+        } catch (AnalysisEngineInvocationException failure) {
+            try {
+                transactionCoordinator.failExternalAnalysis(claim.prepared(), failure);
+            } catch (RuntimeException completionFailure) {
+                interruptBestEffort(claim.prepared());
+                throw interruptedOperation();
+            }
+            throw new ApiException(failure.status(), failure.errorCode(), failure.safeMessage());
+        }
+        try {
+            AnalysisReportResponse report = transactionCoordinator.completeExternalAnalysis(claim.prepared(), generated);
+            return new AnalysisGenerationResult(HttpStatus.CREATED, report);
+        } catch (RuntimeException completionFailure) {
+            interruptBestEffort(claim.prepared());
+            throw interruptedOperation();
+        }
+    }
+
+    private AnalysisGenerationResult generateRuleAnalysis(
+            String idempotencyKey,
+            AnalysisGenerateRequest request,
+            UserConfirmedSnapshotResponse hashSnapshot,
+            String requestHash,
+            ResolvedAnalysisEngineConfiguration engineConfiguration,
+            StrategyParameterRequest strategyParameters,
+            String defaultsVersion) {
         try {
             AnalysisTransactionCoordinator.RuleGenerationOutcome outcome =
                     transactionCoordinator.generateRuleInSingleTransaction(
@@ -80,7 +140,7 @@ public class AnalysisServiceImpl implements AnalysisService {
                             requestHash,
                             engineConfiguration,
                             strategyParameters,
-                            resolvedOptions.defaultsVersion());
+                            defaultsVersion);
             if (outcome.failure() != null) {
                 throw outcome.failure();
             }
@@ -109,13 +169,7 @@ public class AnalysisServiceImpl implements AnalysisService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Analysis report not found."));
     }
 
-    private ResolvedAnalysisEngineConfiguration resolveRuleEngineConfiguration(AnalysisGenerateRequest request) {
-        if (!MockRuleAnalysisEngine.ENGINE_MODE.equals(request.engineMode())) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "UNSUPPORTED_ANALYSIS_ENGINE",
-                    "Task 4 analysis supports only MOCK_RULE_ENGINE.");
-        }
+    private ResolvedAnalysisEngineConfiguration resolveEngineConfiguration(AnalysisGenerateRequest request) {
         try {
             return engineConfigurationResolver.resolve(
                     request.engineMode(),
@@ -217,6 +271,21 @@ public class AnalysisServiceImpl implements AnalysisService {
                 HttpStatus.BAD_REQUEST,
                 "INVALID_IDEMPOTENCY_KEY",
                 "A UUID Idempotency-Key header is required.");
+    }
+
+    private void interruptBestEffort(PreparedAnalysisOperation prepared) {
+        try {
+            transactionCoordinator.interruptExternalAnalysisRequiresNew(prepared);
+        } catch (RuntimeException ignored) {
+            // Startup stale-operation recovery will retry the matching claim transition.
+        }
+    }
+
+    private ApiException interruptedOperation() {
+        return new ApiException(
+                HttpStatus.CONFLICT,
+                "OPERATION_INTERRUPTED",
+                "The external analysis operation was interrupted and will not be retried automatically.");
     }
 
     private ApiException invalidRequest(String message) {

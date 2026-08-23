@@ -41,7 +41,19 @@ public class LlmInvocationAuditService {
             String inputPayload,
             LlmChatResponse response,
             String safetyStatus) {
-        return save(new LlmInvocationAuditRecord(
+        return save(buildSuccessRecord(
+                businessType, businessId, provider, promptVersion, inputPayload, response, safetyStatus));
+    }
+
+    public LlmInvocationAuditRecord buildSuccessRecord(
+            String businessType,
+            String businessId,
+            LlmProviderInvocationConfig provider,
+            String promptVersion,
+            String inputPayload,
+            LlmChatResponse response,
+            String safetyStatus) {
+        return new LlmInvocationAuditRecord(
                 nextAuditId(),
                 businessType,
                 businessId,
@@ -56,7 +68,7 @@ public class LlmInvocationAuditService {
                 response.latencyMs(),
                 normalizeSafetyStatus(safetyStatus, SAFETY_PASSED),
                 null,
-                now()));
+                now());
     }
 
     public String recordFailure(
@@ -72,7 +84,25 @@ public class LlmInvocationAuditService {
             Long latencyMs,
             String safetyStatus,
             String errorCode) {
-        return save(new LlmInvocationAuditRecord(
+        return save(buildFailureRecord(
+                businessType, businessId, provider, promptVersion, inputPayload, outputPayload,
+                promptTokens, completionTokens, totalTokens, latencyMs, safetyStatus, errorCode));
+    }
+
+    public LlmInvocationAuditRecord buildFailureRecord(
+            String businessType,
+            String businessId,
+            LlmProviderInvocationConfig provider,
+            String promptVersion,
+            String inputPayload,
+            String outputPayload,
+            Integer promptTokens,
+            Integer completionTokens,
+            Integer totalTokens,
+            Long latencyMs,
+            String safetyStatus,
+            String errorCode) {
+        return new LlmInvocationAuditRecord(
                 nextAuditId(),
                 businessType,
                 businessId,
@@ -87,7 +117,7 @@ public class LlmInvocationAuditService {
                 latencyMs,
                 normalizeSafetyStatus(safetyStatus, SAFETY_ERROR),
                 normalizeErrorCode(errorCode),
-                now()));
+                now());
     }
 
     private String save(LlmInvocationAuditRecord auditRecord) {
