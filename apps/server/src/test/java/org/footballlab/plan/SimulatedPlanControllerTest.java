@@ -122,6 +122,7 @@ class SimulatedPlanControllerTest {
                 .andExpect(jsonPath("$.data.statusFlow[1]").value("SAVED"))
                 .andExpect(jsonPath("$.data.statusFlow[2]").value("PENDING_RESULT"))
                 .andExpect(jsonPath("$.data.items[0].planItemId").exists())
+                .andExpect(jsonPath("$.data.items[0].itemStatus").value("GENERATED"))
                 .andExpect(jsonPath("$.data.snapshot.snapshotId").value("snapshot-demo-001"))
                 .andExpect(jsonPath("$.data.strategyParameters.upsetCoverageLevel").value("STRONG"))
                 .andReturn();
@@ -135,6 +136,7 @@ class SimulatedPlanControllerTest {
         mockMvc.perform(get("/api/simulated-plans/{planId}", generatedPlanId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.planId").value(generatedPlanId))
+                .andExpect(jsonPath("$.data.items[0].itemStatus").value("GENERATED"))
                 .andExpect(jsonPath("$.data.snapshot.reportId").value("analysis-demo-001"))
                 .andExpect(jsonPath("$.data.snapshot.strategyParameters.maxParlayLegs").value(3));
 

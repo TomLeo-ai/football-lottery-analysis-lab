@@ -117,22 +117,7 @@ public class SimulatedPlanServiceImpl implements SimulatedPlanService {
                 generatedPlan.budgetAmount(),
                 generatedPlan.strategyParameters(),
                 List.of(STATUS_GENERATED, STATUS_SAVED, STATUS_PENDING_RESULT),
-                generatedPlan.items().stream()
-                        .map(item -> new SimulatedPlanItemResponse(
-                                item.planItemId(),
-                                item.matchId(),
-                                item.matchDate(),
-                                item.league(),
-                                item.homeTeam(),
-                                item.awayTeam(),
-                                item.kickoffTime(),
-                                item.playType(),
-                                item.selection(),
-                                item.odds(),
-                                item.stakeAmount(),
-                                STATUS_PENDING_RESULT,
-                                item.note()))
-                        .toList(),
+                generatedPlan.items(),
                 new SimulatedPlanSnapshotResponse(
                         generatedPlan.snapshot().planSnapshotId(),
                         generatedPlan.snapshot().snapshotId(),
