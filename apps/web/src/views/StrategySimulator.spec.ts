@@ -2,680 +2,554 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { useAnalysisReportStore } from '@/stores/analysisReport';
 import { useOcrWorkflowStore } from '@/stores/ocrWorkflow';
+import type { AnalysisReport } from '@/types/analysis';
+import type { OcrWorkflowAggregate, UserConfirmedSnapshot } from '@/types/ocrWorkflow';
+import { readPendingWrite, savePendingWrite } from '@/workflow/workflowSession';
 
 import StrategySimulator from './StrategySimulator.vue';
 
-describe('StrategySimulator', () => {
-  let pinia: ReturnType<typeof createPinia>;
+const WORKFLOW_ID = 'workflow-550e8400-e29b-41d4-a716-446655440001';
+const SNAPSHOT_ID = 'snapshot-001';
+const REPORT_ID = 'analysis-001';
 
+const optionKeys = [
+  'allowLowReturnTicket',
+  'defensiveTicketRatio',
+  'enableEntertainmentTicket',
+  'entertainmentTicketMaxCost',
+  'entertainmentTicketRatio',
+  'mainTicketRatio',
+  'maxParlayLegs',
+  'maxTicketCount',
+  'minPayoutRequirement',
+  'minTicketCount',
+  'targetTicketCount',
+  'upsetCoverageLevel',
+].sort();
+
+function snapshot(): UserConfirmedSnapshot {
+  return {
+    snapshotId: SNAPSHOT_ID,
+    ocrTaskId: 'ocr-001',
+    sourceType: 'USER_SCREENSHOT_CONFIRMED',
+    snapshotStatus: 'CONFIRMED',
+    analysisAllowed: true,
+    riskPreference: 'BALANCED',
+    budgetAmount: 20,
+    currency: 'CNY',
+    matches: [{
+      matchId: 'match-secret-001',
+      matchDate: '2026-08-24',
+      league: 'Secret League',
+      homeTeam: 'Secret Home',
+      awayTeam: 'Secret Away',
+      kickoffTime: '2026-08-24T20:00:00+08:00',
+    }],
+    markets: [{
+      marketId: 'market-secret-001',
+      matchId: 'match-secret-001',
+      playType: 'WIN_DRAW_LOSS',
+      selection: 'HOME_WIN',
+      odds: 2.1,
+    }],
+    workflowId: WORKFLOW_ID,
+    confirmedRevision: 3,
+    authorityType: 'SERVER_CONFIRMED_V2',
+    schemaVersion: 'CONFIRMED_SNAPSHOT_V2',
+  };
+}
+
+function workflow(
+  stage: OcrWorkflowAggregate['currentStage'] = 'CONFIRMED',
+  currentReportId: string | null = null,
+): OcrWorkflowAggregate {
+  return {
+    workflowId: WORKFLOW_ID,
+    currentStage: stage,
+    version: currentReportId === null ? 3 : 4,
+    screenshotTaskId: 'screenshot-001',
+    currentOcrTaskId: null,
+    confirmedSnapshotId: SNAPSHOT_ID,
+    currentReportId,
+    currentPlanId: null,
+    createdAt: '2026-08-24T00:00:00Z',
+    updatedAt: '2026-08-24T00:00:00Z',
+  };
+}
+
+function report(overrides: Partial<AnalysisReport> = {}): AnalysisReport {
+  return {
+    reportId: REPORT_ID,
+    workflowId: WORKFLOW_ID,
+    snapshotId: SNAPSHOT_ID,
+    authorityType: 'SERVER_CONFIRMED_V2',
+    schemaVersion: 'ANALYSIS_REPORT_V2',
+    strategyDefaultsVersion: 'STRATEGY_DEFAULTS_V2',
+    authorityRevision: 3,
+    inputSourceType: 'USER_SCREENSHOT_CONFIRMED',
+    engineType: 'MOCK_RULE_ENGINE',
+    reportStatus: 'GENERATED',
+    strategyParameters: null,
+    probabilityAnalysis: [],
+    riskWarnings: [],
+    simulatedSelections: [],
+    complianceNotice: 'Non-official simulation only.',
+    generatedAt: '2026-08-24T00:01:00Z',
+    ...overrides,
+  };
+}
+
+function ok<T>(data: T, status = 200) {
+  return Promise.resolve({
+    ok: true,
+    status,
+    json: async () => ({ code: status, msg: 'success', data }),
+  } as Response);
+}
+
+function apiError(errorCode: string, recovery: Record<string, unknown> = {}, status = 409) {
+  return Promise.resolve({
+    ok: false,
+    status,
+    json: async () => ({
+      code: status,
+      msg: 'failed',
+      data: null,
+      error: { errorCode, message: errorCode, recovery },
+    }),
+  } as Response);
+}
+
+function activate(pinia: ReturnType<typeof createPinia>, aggregate = workflow()) {
+  setActivePinia(pinia);
+  const store = useOcrWorkflowStore();
+  store.$patch({
+    status: 'READY',
+    activeWorkflowId: WORKFLOW_ID,
+    workflow: aggregate,
+    confirmedSnapshot: snapshot(),
+    snapshotsById: { [SNAPSHOT_ID]: snapshot() },
+  });
+}
+
+function mountPage(pinia: ReturnType<typeof createPinia>) {
+  return mount(StrategySimulator, {
+    global: {
+      plugins: [pinia],
+      stubs: { RouterLink: { template: '<a><slot /></a>' } },
+    },
+  });
+}
+
+describe('StrategySimulator authoritative requests', () => {
   beforeEach(() => {
-    pinia = createPinia();
-    setActivePinia(pinia);
+    sessionStorage.clear();
+    vi.restoreAllMocks();
   });
 
-  it('generates a mock analysis report only from a confirmed snapshot', async () => {
-    const ocrStore = useOcrWorkflowStore();
-    ocrStore.setConfirmedSnapshot({
-      snapshotId: 'snapshot-demo-001',
-      ocrTaskId: 'ocr-demo-001',
-      sourceType: 'USER_SCREENSHOT_CONFIRMED',
-      snapshotStatus: 'CONFIRMED',
-      analysisAllowed: true,
-      riskPreference: 'BALANCED',
-      budgetAmount: 20,
-      currency: 'CNY',
-      matches: [
-        {
-          matchId: 'demo-match-001',
-          matchDate: '2026-07-01',
-          league: 'Fictional Coastal League',
-          homeTeam: 'Northport United',
-          awayTeam: 'Lakeside City',
-          kickoffTime: '2026-07-01T19:30:00+08:00'
-        }
-      ],
-      markets: [
-        {
-          marketId: 'demo-market-001',
-          matchId: 'demo-match-001',
-          playType: 'WIN_DRAW_LOSS',
-          selection: 'HOME_WIN',
-          odds: 2.05
-        }
-      ]
-    });
-
+  it('persists first and sends the exact Mock body with only 12 non-authority options', async () => {
+    const pinia = createPinia();
+    activate(pinia);
+    const reportStore = useAnalysisReportStore();
+    let pendingSeenBeforeFetch = false;
+    let pendingSeenBeforeRefresh = false;
+    let cacheEmptyBeforeRefresh = false;
+    const requestOrder: string[] = [];
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      const method = init?.method ?? 'GET';
-
-      if (url === '/api/strategy-parameter-defaults' && method === 'GET') {
-        return Promise.resolve({
-          ok: true,
-          json: () =>
-            Promise.resolve({
-              code: 200,
-              msg: 'success',
-              data: {
-                budgetAmount: 20,
-                currency: 'CNY',
-                targetTicketCount: 5,
-                minTicketCount: 5,
-                maxTicketCount: 6,
-                riskPreference: 'BALANCED',
-                mainTicketRatio: 0.6,
-                defensiveTicketRatio: 0.3,
-                entertainmentTicketRatio: 0.1,
-                enableEntertainmentTicket: true,
-                entertainmentTicketMaxCost: 2,
-                maxParlayLegs: 4,
-                preferredPlayTypes: ['WIN_DRAW_LOSS', 'HANDICAP_WIN_DRAW_LOSS'],
-                excludedPlayTypes: [],
-                exactScorePolicy: 'ENTERTAINMENT_ONLY',
-                minPayoutRequirement: null,
-                allowLowReturnTicket: false,
-                upsetCoverageLevel: 'BALANCED'
-              }
-            })
-        });
+      if (url === '/api/analysis/generate' && init?.method === 'POST') {
+        requestOrder.push('POST');
+        pendingSeenBeforeFetch = readPendingWrite(WORKFLOW_ID)?.operationType === 'GENERATE_ANALYSIS';
+        return ok(report({ complianceNotice: 'POST response must not be cached.' }), 201);
       }
-
-      if (url === '/api/engine-settings' && method === 'GET') {
-        return Promise.resolve({
-          ok: true,
-          json: () =>
-            Promise.resolve({
-              code: 200,
-              msg: 'success',
-              data: {
-                defaultEngineMode: 'MOCK_RULE_ENGINE',
-                analysisEngineMode: 'MOCK_RULE_ENGINE',
-                reviewInsightMode: 'RULE_REVIEW_ONLY'
-              }
-            })
-        });
+      if (url === `/api/ocr/workflows/${WORKFLOW_ID}`) {
+        requestOrder.push('REFRESH');
+        pendingSeenBeforeRefresh = readPendingWrite(WORKFLOW_ID) !== null;
+        cacheEmptyBeforeRefresh = reportStore.getReport(REPORT_ID) === null;
+        return ok(workflow('ANALYSIS_GENERATED', REPORT_ID));
       }
-
-      if (url === '/api/model-providers' && method === 'GET') {
-        return Promise.resolve({
-          ok: true,
-          json: () =>
-            Promise.resolve({
-              code: 200,
-              msg: 'success',
-              data: [
-                {
-                  providerKey: 'openai',
-                  displayName: 'OpenAI',
-                  baseUrl: 'https://api.openai.com/v1',
-                  defaultModel: 'gpt-4o-mini',
-                  apiKeyEnvName: 'OPENAI_API_KEY',
-                  enabled: true,
-                  credentialStatus: 'CONFIGURED',
-                  connectionStatus: 'UNTESTED'
-                }
-              ]
-            })
-        });
+      if (url === `/api/analysis/reports/${REPORT_ID}`) {
+        requestOrder.push('DETAIL');
+        return ok(report({ complianceNotice: 'Authoritative detail.' }));
       }
-
-      if (url === '/api/analysis/generate' && method === 'POST') {
-        return Promise.resolve({
-          ok: true,
-          json: () =>
-            Promise.resolve({
-              code: 200,
-              msg: 'success',
-              data: {
-                reportId: 'analysis-demo-001',
-                snapshotId: 'snapshot-demo-001',
-                inputSourceType: 'USER_SCREENSHOT_CONFIRMED',
-                engineType: 'MOCK_RULE_ENGINE',
-                reportStatus: 'GENERATED',
-                strategyParameters: {
-                  budgetAmount: 30,
-                  currency: 'CNY',
-                  targetTicketCount: 4,
-                  minTicketCount: 3,
-                  maxTicketCount: 5,
-                  riskPreference: 'AGGRESSIVE',
-                  mainTicketRatio: 0.5,
-                  defensiveTicketRatio: 0.3,
-                  entertainmentTicketRatio: 0.2,
-                  enableEntertainmentTicket: false,
-                  entertainmentTicketMaxCost: 2,
-                  maxParlayLegs: 3,
-                  preferredPlayTypes: ['WIN_DRAW_LOSS'],
-                  excludedPlayTypes: ['EXACT_SCORE'],
-                  exactScorePolicy: 'DISABLED',
-                  minPayoutRequirement: null,
-                  allowLowReturnTicket: true,
-                  upsetCoverageLevel: 'STRONG'
-                },
-                probabilityAnalysis: [
-                  {
-                    matchId: 'demo-match-001',
-                    homeTeam: 'Northport United',
-                    awayTeam: 'Lakeside City',
-                    selection: 'HOME_WIN',
-                    probabilityBand: 'MEDIUM',
-                    rationale: '主队方向略占优，但仍需保留不确定性。'
-                  }
-                ],
-                riskWarnings: [
-                  {
-                    riskCode: 'INFO_RISK',
-                    riskLevel: 'MEDIUM_HIGH',
-                    message: '仅基于用户确认快照，缺少真实临场信息。'
-                  }
-                ],
-                simulatedSelections: [
-                  {
-                    matchId: 'demo-match-001',
-                    playType: 'WIN_DRAW_LOSS',
-                    selection: 'HOME_WIN',
-                    odds: 2.05,
-                    stakeAmount: 30,
-                    note: '模拟选择，用于后续方案阶段。'
-                  }
-                ],
-                complianceNotice: '非官方，仅模拟分析/复盘，不构成确定性建议。',
-                generatedAt: '2026-06-25T18:00:00+08:00'
-              }
-            })
-        });
-      }
-
-      return Promise.reject(new Error(`Unexpected request: ${method} ${url}`));
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
     });
-
     vi.stubGlobal('fetch', fetchMock);
 
-    const wrapper = mount(StrategySimulator, {
-      global: {
-        plugins: [pinia],
-        stubs: {
-          RouterLink: {
-            template: '<a><slot /></a>'
-          }
-        }
-      }
-    });
-
+    const wrapper = mountPage(pinia);
+    expect(wrapper.get('[data-testid="analysis-engine-select"]').element).toHaveProperty('disabled', false);
+    expect(wrapper.get('[data-testid="option-target"]').element).toHaveProperty('disabled', false);
+    await wrapper.get('[data-testid="generate-analysis-button"]').trigger('click');
     await flushPromises();
 
-    expect(wrapper.text()).toContain('本轮参数');
-
-    await wrapper.get('[data-testid="strategy-budget-input"]').setValue('30');
-    await wrapper.get('[data-testid="strategy-target-count-input"]').setValue('4');
-    await wrapper.get('[data-testid="strategy-min-count-input"]').setValue('3');
-    await wrapper.get('[data-testid="strategy-max-count-input"]').setValue('5');
-    await wrapper.get('[data-testid="strategy-risk-select"]').setValue('AGGRESSIVE');
-    await wrapper.get('[data-testid="strategy-main-ratio-input"]').setValue('0.5');
-    await wrapper.get('[data-testid="strategy-defensive-ratio-input"]').setValue('0.3');
-    await wrapper.get('[data-testid="strategy-entertainment-ratio-input"]').setValue('0.2');
-    await wrapper.get('[data-testid="strategy-entertainment-toggle"]').setValue(false);
-    await wrapper.get('[data-testid="strategy-entertainment-cost-input"]').setValue('2');
-    await wrapper.get('[data-testid="strategy-max-parlay-input"]').setValue('3');
-    await wrapper.get('[data-testid="strategy-preferred-play-types-input"]').setValue('WIN_DRAW_LOSS');
-    await wrapper.get('[data-testid="strategy-excluded-play-types-input"]').setValue('EXACT_SCORE');
-    await wrapper.get('[data-testid="strategy-exact-score-policy-select"]').setValue('DISABLED');
-    await wrapper.get('[data-testid="strategy-low-return-toggle"]').setValue(true);
-    await wrapper.get('[data-testid="strategy-upset-coverage-select"]').setValue('STRONG');
-
-    await wrapper.get('button[data-testid="generate-analysis-button"]').trigger('click');
-    await flushPromises();
-
-    const analysisRequest = fetchMock.mock.calls.find(
-      ([input, init]) => String(input) === '/api/analysis/generate' && init?.method === 'POST'
+    const call = fetchMock.mock.calls.find(([url]) => String(url) === '/api/analysis/generate');
+    const body = JSON.parse(String(call?.[1]?.body));
+    expect(pendingSeenBeforeFetch).toBe(true);
+    expect(Object.keys(body).sort()).toEqual(['analysisOptions', 'engineMode', 'snapshotId']);
+    expect(body).toMatchObject({ snapshotId: SNAPSHOT_ID, engineMode: 'MOCK_RULE_ENGINE' });
+    expect(Object.keys(body.analysisOptions).sort()).toEqual(optionKeys);
+    expect((call?.[1]?.headers as Record<string, string>)['Idempotency-Key']).toMatch(
+      /^[0-9a-f-]{36}$/i,
     );
-    expect(analysisRequest).toBeTruthy();
-    const payload = JSON.parse(String(analysisRequest?.[1]?.body));
-
-    expect(payload.engineMode).toBe('MOCK_RULE_ENGINE');
-    expect(payload.strategyParameters).toMatchObject({
-      budgetAmount: 30,
-      targetTicketCount: 4,
-      minTicketCount: 3,
-      maxTicketCount: 5,
-      riskPreference: 'AGGRESSIVE',
-      maxParlayLegs: 3,
-      excludedPlayTypes: ['EXACT_SCORE'],
-      exactScorePolicy: 'DISABLED',
-      upsetCoverageLevel: 'STRONG'
-    });
-
-    expect(wrapper.text()).toContain('实际使用参数');
-    expect(wrapper.text()).toContain('AGGRESSIVE');
-    expect(wrapper.text()).toContain('EXACT_SCORE');
-    expect(wrapper.text()).toContain('MOCK_RULE_ENGINE');
-    expect(wrapper.text()).toContain('USER_SCREENSHOT_CONFIRMED');
-    expect(wrapper.text()).toContain('风险提示');
-    expect(wrapper.text()).toContain('非官方');
-    expect(wrapper.text()).not.toContain('\u5fc5\u4e2d');
-    expect(wrapper.text()).not.toContain('\u7a33\u8d5a');
+    expect(JSON.stringify(body)).not.toMatch(
+      /sourceType|analysisAllowed|riskPreference|budgetAmount|currency|preferredPlayTypes|excludedPlayTypes|exactScorePolicy|matches|markets|status/i,
+    );
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('engine-settings'))).toBe(false);
+    expect(pendingSeenBeforeRefresh).toBe(true);
+    expect(cacheEmptyBeforeRefresh).toBe(true);
+    expect(requestOrder).toEqual(['POST', 'REFRESH', 'DETAIL']);
+    expect(reportStore.getReport(REPORT_ID)?.complianceNotice).toBe('Authoritative detail.');
+    expect(readPendingWrite(WORKFLOW_ID)).toBeNull();
   });
 
-  it('submits provider, model, and prompt metadata when the large-model engine is selected', async () => {
-    const ocrStore = useOcrWorkflowStore();
-    ocrStore.setConfirmedSnapshot({
-      snapshotId: 'snapshot-llm-001',
-      ocrTaskId: 'ocr-llm-001',
-      sourceType: 'USER_SCREENSHOT_CONFIRMED',
-      snapshotStatus: 'CONFIRMED',
-      analysisAllowed: true,
-      riskPreference: 'BALANCED',
-      budgetAmount: 20,
-      currency: 'CNY',
-      matches: [
-        {
-          matchId: 'demo-match-001',
-          matchDate: '2026-07-01',
-          league: 'Fictional Coastal League',
-          homeTeam: 'Northport United',
-          awayTeam: 'Lakeside City',
-          kickoffTime: '2026-07-01T19:30:00+08:00'
-        }
-      ],
-      markets: [
-        {
-          marketId: 'demo-market-001',
-          matchId: 'demo-match-001',
-          playType: 'WIN_DRAW_LOSS',
-          selection: 'HOME_WIN',
-          odds: 2.05
-        }
-      ]
-    });
-
+  it('sends exactly six top-level keys for an explicit LLM selection and fixed prompt', async () => {
+    const pinia = createPinia();
+    activate(pinia);
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      const method = init?.method ?? 'GET';
-
-      if (url === '/api/strategy-parameter-defaults' && method === 'GET') {
-        return Promise.resolve({
-          ok: true,
-          json: () =>
-            Promise.resolve({
-              code: 200,
-              msg: 'success',
-              data: {
-                budgetAmount: 20,
-                currency: 'CNY',
-                targetTicketCount: 5,
-                minTicketCount: 5,
-                maxTicketCount: 6,
-                riskPreference: 'BALANCED',
-                mainTicketRatio: 0.6,
-                defensiveTicketRatio: 0.3,
-                entertainmentTicketRatio: 0.1,
-                enableEntertainmentTicket: true,
-                entertainmentTicketMaxCost: 2,
-                maxParlayLegs: 4,
-                preferredPlayTypes: ['WIN_DRAW_LOSS'],
-                excludedPlayTypes: ['EXACT_SCORE'],
-                exactScorePolicy: 'DISABLED',
-                minPayoutRequirement: null,
-                allowLowReturnTicket: false,
-                upsetCoverageLevel: 'BALANCED'
-              }
-            })
-        });
+      if (url === '/api/analysis/generate' && init?.method === 'POST') {
+        return ok(report({
+          engineType: 'OPENAI_COMPATIBLE',
+          providerKey: 'openai',
+          modelId: 'gpt-explicit',
+          promptVersion: 'danche-prediction-v1',
+        }), 201);
       }
-
-      if (url === '/api/engine-settings' && method === 'GET') {
-        return Promise.resolve({
-          ok: true,
-          json: () =>
-            Promise.resolve({
-              code: 200,
-              msg: 'success',
-              data: {
-                defaultEngineMode: 'MOCK_RULE_ENGINE',
-                analysisEngineMode: 'MOCK_RULE_ENGINE',
-                reviewInsightMode: 'RULE_REVIEW_ONLY'
-              }
-            })
-        });
+      if (url === `/api/ocr/workflows/${WORKFLOW_ID}`) {
+        return ok(workflow('ANALYSIS_GENERATED', REPORT_ID));
       }
-
-      if (url === '/api/model-providers' && method === 'GET') {
-        return Promise.resolve({
-          ok: true,
-          json: () =>
-            Promise.resolve({
-              code: 200,
-              msg: 'success',
-              data: [
-                {
-                  providerKey: 'openai',
-                  displayName: 'OpenAI',
-                  baseUrl: 'https://api.openai.com/v1',
-                  defaultModel: 'gpt-4o-mini',
-                  apiKeyEnvName: 'OPENAI_API_KEY',
-                  enabled: true,
-                  credentialStatus: 'CONFIGURED',
-                  connectionStatus: 'UNTESTED'
-                },
-                {
-                  providerKey: 'deepseek',
-                  displayName: 'DeepSeek',
-                  baseUrl: 'https://api.deepseek.com',
-                  defaultModel: 'deepseek-v4-pro',
-                  apiKeyEnvName: 'DEEPSEEK_API_KEY',
-                  enabled: true,
-                  credentialStatus: 'MISSING',
-                  connectionStatus: 'UNTESTED'
-                }
-              ]
-            })
-        });
-      }
-
-      if (url === '/api/analysis/generate' && method === 'POST') {
-        return Promise.resolve({
-          ok: true,
-          json: () =>
-            Promise.resolve({
-              code: 200,
-              msg: 'success',
-              data: {
-                reportId: 'analysis-llm-001',
-                snapshotId: 'snapshot-llm-001',
-                inputSourceType: 'USER_SCREENSHOT_CONFIRMED',
-                engineType: 'OPENAI_COMPATIBLE',
-                reportStatus: 'GENERATED',
-                providerKey: 'openai',
-                modelId: 'gpt-custom',
-                promptVersion: 'danche-prediction-v1',
-                safetyStatus: 'PASSED',
-                llmAuditId: null,
-                llmOutput: {
-                  ticketGroups: [
-                    {
-                      ticketType: 'MAIN'
-                    }
-                  ],
-                  finalDecision: {
-                    summary: 'structured output accepted'
-                  }
-                },
-                strategyParameters: {
-                  budgetAmount: 20,
-                  currency: 'CNY',
-                  targetTicketCount: 5,
-                  minTicketCount: 5,
-                  maxTicketCount: 6,
-                  riskPreference: 'BALANCED',
-                  mainTicketRatio: 0.6,
-                  defensiveTicketRatio: 0.3,
-                  entertainmentTicketRatio: 0.1,
-                  enableEntertainmentTicket: true,
-                  entertainmentTicketMaxCost: 2,
-                  maxParlayLegs: 4,
-                  preferredPlayTypes: ['WIN_DRAW_LOSS'],
-                  excludedPlayTypes: ['EXACT_SCORE'],
-                  exactScorePolicy: 'DISABLED',
-                  minPayoutRequirement: null,
-                  allowLowReturnTicket: false,
-                  upsetCoverageLevel: 'BALANCED'
-                },
-                probabilityAnalysis: [],
-                riskWarnings: [],
-                simulatedSelections: [],
-                complianceNotice: '非官方模拟分析结果，仅用于技术研究和流程验证，不构成购彩建议。',
-                generatedAt: '2026-06-27T22:00:00+08:00'
-              }
-            })
-        });
-      }
-
-      return Promise.reject(new Error(`Unexpected request: ${method} ${url}`));
+      if (url === `/api/analysis/reports/${REPORT_ID}`) return ok(report({
+        engineType: 'OPENAI_COMPATIBLE',
+        providerKey: 'openai',
+        modelId: 'gpt-explicit',
+        promptVersion: 'danche-prediction-v1',
+      }));
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
     });
-
     vi.stubGlobal('fetch', fetchMock);
 
-    const wrapper = mount(StrategySimulator, {
-      global: {
-        plugins: [pinia],
-        stubs: {
-          RouterLink: {
-            template: '<a><slot /></a>'
-          }
-        }
-      }
-    });
-
-    await flushPromises();
-
+    const wrapper = mountPage(pinia);
+    expect(wrapper.get('[data-testid="analysis-engine-select"]').element).toHaveProperty('value', 'MOCK_RULE_ENGINE');
+    expect(wrapper.text()).not.toContain('USE_GLOBAL');
     await wrapper.get('[data-testid="analysis-engine-select"]').setValue('OPENAI_COMPATIBLE');
-    await wrapper.get('[data-testid="analysis-provider-select"]').setValue('openai');
-    await wrapper.get('[data-testid="analysis-model-input"]').setValue('gpt-custom');
-    await wrapper.get('[data-testid="analysis-prompt-version-input"]').setValue('danche-prediction-v1');
-
-    expect(wrapper.text()).toContain('OpenAI');
-    expect(wrapper.text()).toContain('CONFIGURED');
-    expect(wrapper.text()).toContain('OPENAI_API_KEY');
-    expect(wrapper.text()).toContain('API Key 前端不可见');
-
-    await wrapper.get('button[data-testid="generate-analysis-button"]').trigger('click');
+    await wrapper.get('[data-testid="analysis-provider-input"]').setValue('openai');
+    await wrapper.get('[data-testid="analysis-model-input"]').setValue('gpt-explicit');
+    await wrapper.get('[data-testid="generate-analysis-button"]').trigger('click');
     await flushPromises();
 
-    const analysisRequest = fetchMock.mock.calls.find(
-      ([input, init]) => String(input) === '/api/analysis/generate' && init?.method === 'POST'
-    );
-    expect(analysisRequest).toBeTruthy();
-    const payload = JSON.parse(String(analysisRequest?.[1]?.body));
-
-    expect(payload).toMatchObject({
-      engineMode: 'OPENAI_COMPATIBLE',
+    const call = fetchMock.mock.calls.find(([url]) => String(url) === '/api/analysis/generate');
+    const body = JSON.parse(String(call?.[1]?.body));
+    expect(Object.keys(body).sort()).toEqual([
+      'analysisOptions',
+      'engineMode',
+      'modelId',
+      'promptVersion',
+      'providerKey',
+      'snapshotId',
+    ]);
+    expect(body).toMatchObject({
       providerKey: 'openai',
-      modelId: 'gpt-custom',
-      promptVersion: 'danche-prediction-v1'
+      modelId: 'gpt-explicit',
+      promptVersion: 'danche-prediction-v1',
     });
-
-    expect(wrapper.text()).toContain('OPENAI_COMPATIBLE');
-    expect(wrapper.text()).toContain('gpt-custom');
-    expect(wrapper.text()).toContain('PASSED');
-    expect(wrapper.text()).toContain('danche-prediction-v1');
-    expect(wrapper.text()).toContain('ticketGroups: 1');
+    expect(Object.keys(body.analysisOptions).sort()).toEqual(optionKeys);
   });
 
-  it('uses global analysis engine settings when the global option is selected', async () => {
-    const ocrStore = useOcrWorkflowStore();
-    ocrStore.setConfirmedSnapshot({
-      snapshotId: 'snapshot-global-001',
-      ocrTaskId: 'ocr-global-001',
-      sourceType: 'USER_SCREENSHOT_CONFIRMED',
-      snapshotStatus: 'CONFIRMED',
-      analysisAllowed: true,
-      riskPreference: 'BALANCED',
-      budgetAmount: 20,
-      currency: 'CNY',
-      matches: [
-        {
-          matchId: 'demo-match-001',
-          matchDate: '2026-07-01',
-          league: 'Fictional Coastal League',
-          homeTeam: 'Northport United',
-          awayTeam: 'Lakeside City',
-          kickoffTime: '2026-07-01T19:30:00+08:00'
-        }
-      ],
-      markets: [
-        {
-          marketId: 'demo-market-001',
-          matchId: 'demo-match-001',
-          playType: 'WIN_DRAW_LOSS',
-          selection: 'HOME_WIN',
-          odds: 2.05
-        }
-      ]
-    });
-
+  it('hydrates currentReportId by GET only and checks its lineage', async () => {
+    const pinia = createPinia();
+    activate(pinia, workflow('ANALYSIS_GENERATED', REPORT_ID));
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      const method = init?.method ?? 'GET';
-
-      if (url === '/api/strategy-parameter-defaults' && method === 'GET') {
-        return Promise.resolve({
-          ok: true,
-          json: () =>
-            Promise.resolve({
-              code: 200,
-              msg: 'success',
-              data: {
-                budgetAmount: 20,
-                currency: 'CNY',
-                targetTicketCount: 2,
-                minTicketCount: 1,
-                maxTicketCount: 3,
-                riskPreference: 'BALANCED',
-                mainTicketRatio: 0.7,
-                defensiveTicketRatio: 0.2,
-                entertainmentTicketRatio: 0.1,
-                enableEntertainmentTicket: true,
-                entertainmentTicketMaxCost: 4,
-                maxParlayLegs: 2,
-                preferredPlayTypes: ['WIN_DRAW_LOSS'],
-                excludedPlayTypes: [],
-                exactScorePolicy: 'ENTERTAINMENT_ONLY',
-                minPayoutRequirement: 1.5,
-                allowLowReturnTicket: false,
-                upsetCoverageLevel: 'BALANCED'
-              }
-            })
-        });
-      }
-
-      if (url === '/api/engine-settings' && method === 'GET') {
-        return Promise.resolve({
-          ok: true,
-          json: () =>
-            Promise.resolve({
-              code: 200,
-              msg: 'success',
-              data: {
-                defaultEngineMode: 'MOCK_RULE_ENGINE',
-                analysisEngineMode: 'OPENAI_COMPATIBLE',
-                reviewInsightMode: 'RULE_REVIEW_ONLY'
-              }
-            })
-        });
-      }
-
-      if (url === '/api/model-providers' && method === 'GET') {
-        return Promise.resolve({
-          ok: true,
-          json: () =>
-            Promise.resolve({
-              code: 200,
-              msg: 'success',
-              data: [
-                {
-                  providerKey: 'deepseek',
-                  displayName: 'DeepSeek',
-                  baseUrl: 'https://api.deepseek.com',
-                  defaultModel: 'deepseek-v4-pro',
-                  apiKeyEnvName: 'DEEPSEEK_API_KEY',
-                  enabled: true,
-                  credentialStatus: 'CONFIGURED',
-                  connectionStatus: 'UNTESTED'
-                }
-              ]
-            })
-        });
-      }
-
-      if (url === '/api/analysis/generate' && method === 'POST') {
-        return Promise.resolve({
-          ok: true,
-          json: () =>
-            Promise.resolve({
-              code: 200,
-              msg: 'success',
-              data: {
-                reportId: 'analysis-global-001',
-                snapshotId: 'snapshot-global-001',
-                inputSourceType: 'USER_SCREENSHOT_CONFIRMED',
-                engineType: 'OPENAI_COMPATIBLE',
-                reportStatus: 'GENERATED',
-                providerKey: 'deepseek',
-                modelId: 'deepseek-v4-pro',
-                promptVersion: 'danche-prediction-v1',
-                safetyStatus: 'PASSED',
-                llmAuditId: 'llm-audit-global',
-                llmOutput: {
-                  ticketGroups: [],
-                  finalDecision: {
-                    summary: 'global setting used large model'
-                  }
-                },
-                strategyParameters: {
-                  budgetAmount: 20,
-                  currency: 'CNY',
-                  targetTicketCount: 2,
-                  minTicketCount: 1,
-                  maxTicketCount: 3,
-                  riskPreference: 'BALANCED',
-                  mainTicketRatio: 0.7,
-                  defensiveTicketRatio: 0.2,
-                  entertainmentTicketRatio: 0.1,
-                  enableEntertainmentTicket: true,
-                  entertainmentTicketMaxCost: 4,
-                  maxParlayLegs: 2,
-                  preferredPlayTypes: ['WIN_DRAW_LOSS'],
-                  excludedPlayTypes: [],
-                  exactScorePolicy: 'ENTERTAINMENT_ONLY',
-                  minPayoutRequirement: 1.5,
-                  allowLowReturnTicket: false,
-                  upsetCoverageLevel: 'BALANCED'
-                },
-                probabilityAnalysis: [],
-                riskWarnings: [],
-                simulatedSelections: [],
-                complianceNotice: '非官方模拟分析结果，仅用于技术研究和流程验证，不构成购彩建议。',
-                generatedAt: '2026-06-30T10:00:00+08:00'
-              }
-            })
-        });
-      }
-
-      return Promise.reject(new Error(`Unexpected request: ${method} ${url}`));
+      expect(init?.method ?? 'GET').toBe('GET');
+      expect(String(input)).toBe(`/api/analysis/reports/${REPORT_ID}`);
+      return ok(report());
     });
-
     vi.stubGlobal('fetch', fetchMock);
 
-    const wrapper = mount(StrategySimulator, {
-      global: {
-        plugins: [pinia],
-        stubs: {
-          RouterLink: {
-            template: '<a><slot /></a>'
-          }
-        }
+    const wrapper = mountPage(pinia);
+    await flushPromises();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(wrapper.text()).toContain(REPORT_ID);
+    const reportStore = useAnalysisReportStore();
+    expect(reportStore.getReport(REPORT_ID)?.workflowId).toBe(WORKFLOW_ID);
+    expect(Object.keys(reportStore.$state)).toEqual(['reportsById']);
+  });
+
+  it('keeps an unknown response for explicit same-key replay and never POSTs on remount', async () => {
+    const pinia = createPinia();
+    activate(pinia);
+    const firstFetch = vi.fn(() => Promise.reject(new TypeError('network lost after send')));
+    vi.stubGlobal('fetch', firstFetch);
+    const first = mountPage(pinia);
+    await first.get('[data-testid="generate-analysis-button"]').trigger('click');
+    await flushPromises();
+    const pending = readPendingWrite(WORKFLOW_ID);
+    const originalKey = pending?.idempotencyKey;
+    expect(pending?.recoveryState).toBe('SAME_KEY_REQUIRED');
+    first.unmount();
+
+    const secondFetch = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === '/api/analysis/generate') return ok(report(), 201);
+      if (String(input) === `/api/ocr/workflows/${WORKFLOW_ID}`) {
+        return ok(workflow('ANALYSIS_GENERATED', REPORT_ID));
       }
+      return ok(report());
     });
-
+    vi.stubGlobal('fetch', secondFetch);
+    const second = mountPage(pinia);
+    await flushPromises();
+    expect(secondFetch).not.toHaveBeenCalled();
+    await second.get('[data-testid="generate-analysis-button"]').trigger('click');
     await flushPromises();
 
-    expect(wrapper.get('[data-testid="analysis-engine-select"]').element).toHaveProperty('value', 'USE_GLOBAL');
+    const replay = secondFetch.mock.calls.find(([url]) => String(url) === '/api/analysis/generate');
+    expect((replay?.[1]?.headers as Record<string, string>)['Idempotency-Key']).toBe(originalKey);
+  });
 
-    await wrapper.get('button[data-testid="generate-analysis-button"]').trigger('click');
+  it('recovers ANALYSIS_ALREADY_GENERATED by currentReportId detail without another POST', async () => {
+    const pinia = createPinia();
+    activate(pinia);
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === '/api/analysis/generate') {
+        return apiError('ANALYSIS_ALREADY_GENERATED', { currentReportId: REPORT_ID });
+      }
+      if (url === `/api/analysis/reports/${REPORT_ID}`) return ok(report());
+      if (url === `/api/ocr/workflows/${WORKFLOW_ID}`) return ok(workflow('ANALYSIS_GENERATED', REPORT_ID));
+      return Promise.reject(new Error(`Unexpected request: ${url} ${init?.method}`));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const wrapper = mountPage(pinia);
+    await wrapper.get('[data-testid="generate-analysis-button"]').trigger('click');
     await flushPromises();
 
-    const analysisRequest = fetchMock.mock.calls.find(
-      ([input, init]) => String(input) === '/api/analysis/generate' && init?.method === 'POST'
-    );
-    expect(analysisRequest).toBeTruthy();
-    const payload = JSON.parse(String(analysisRequest?.[1]?.body));
+    expect(fetchMock.mock.calls.filter(([url]) => String(url) === '/api/analysis/generate')).toHaveLength(1);
+    expect(wrapper.text()).toContain(REPORT_ID);
+    expect(readPendingWrite(WORKFLOW_ID)).toBeNull();
+  });
 
-    expect(payload).toMatchObject({
-      engineMode: 'OPENAI_COMPATIBLE',
-      providerKey: 'deepseek',
-      modelId: 'deepseek-v4-pro',
-      promptVersion: 'danche-prediction-v1'
+  it.each(['FAILED', 'OPERATION_INTERRUPTED'])('%s requires an explicit retry with a new key', async (errorCode) => {
+    const pinia = createPinia();
+    activate(pinia);
+    let attempts = 0;
+    const keys: string[] = [];
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === '/api/analysis/generate') {
+        attempts += 1;
+        keys.push((init?.headers as Record<string, string>)['Idempotency-Key']);
+        if (attempts === 1) return apiError(errorCode);
+        return ok(report(), 201);
+      }
+      if (String(input) === `/api/ocr/workflows/${WORKFLOW_ID}`) {
+        return ok(workflow('ANALYSIS_GENERATED', REPORT_ID));
+      }
+      return ok(report());
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const wrapper = mountPage(pinia);
+    await wrapper.get('[data-testid="generate-analysis-button"]').trigger('click');
+    await flushPromises();
+    expect(readPendingWrite(WORKFLOW_ID)).toMatchObject({ recoveryState: 'NEW_KEY_REQUIRED', errorCode });
+    expect(attempts).toBe(1);
+
+    await wrapper.get('[data-testid="generate-analysis-button"]').trigger('click');
+    await flushPromises();
+    expect(keys).toHaveLength(2);
+    expect(keys[1]).not.toBe(keys[0]);
+  });
+
+  it('keeps the same pending key when refresh returns a different currentReportId', async () => {
+    const pinia = createPinia();
+    activate(pinia);
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      if (String(input) === '/api/analysis/generate') return ok(report(), 201);
+      if (String(input) === `/api/ocr/workflows/${WORKFLOW_ID}`) {
+        return ok(workflow('ANALYSIS_GENERATED', 'analysis-other'));
+      }
+      return Promise.reject(new Error(`Unexpected detail request: ${String(input)}`));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const wrapper = mountPage(pinia);
+    await wrapper.get('[data-testid="generate-analysis-button"]').trigger('click');
+    await flushPromises();
+
+    expect(readPendingWrite(WORKFLOW_ID)).toMatchObject({
+      operationType: 'GENERATE_ANALYSIS',
+      recoveryState: 'SAME_KEY_REQUIRED',
+    });
+    expect(useAnalysisReportStore().getReport(REPORT_ID)).toBeNull();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/api/analysis/reports/'))).toBe(false);
+  });
+
+  it('keeps the original key when report detail fails after analysis POST succeeded', async () => {
+    const pinia = createPinia();
+    activate(pinia);
+    let mutationKey = '';
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === '/api/analysis/generate') {
+        mutationKey = (init?.headers as Record<string, string>)['Idempotency-Key'];
+        return ok(report(), 201);
+      }
+      if (url === `/api/ocr/workflows/${WORKFLOW_ID}`) {
+        return ok(workflow('ANALYSIS_GENERATED', REPORT_ID));
+      }
+      if (url === `/api/analysis/reports/${REPORT_ID}`) {
+        return apiError('REPORT_DETAIL_UNAVAILABLE', {}, 503);
+      }
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const wrapper = mountPage(pinia);
+    await wrapper.get('[data-testid="generate-analysis-button"]').trigger('click');
+    await flushPromises();
+
+    expect(readPendingWrite(WORKFLOW_ID)).toMatchObject({
+      idempotencyKey: mutationKey,
+      recoveryState: 'SAME_KEY_REQUIRED',
+      errorCode: 'UNKNOWN_RESPONSE',
+    });
+    expect(useAnalysisReportStore().getReport(REPORT_ID)).toBeNull();
+  });
+
+  it('keeps MALFORMED_RESPONSE on the same key for an explicit replay', async () => {
+    const pinia = createPinia();
+    activate(pinia);
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () => { throw new SyntaxError('malformed'); },
+    } as unknown as Response)));
+
+    const wrapper = mountPage(pinia);
+    await wrapper.get('[data-testid="generate-analysis-button"]').trigger('click');
+    await flushPromises();
+
+    expect(readPendingWrite(WORKFLOW_ID)).toMatchObject({
+      recoveryState: 'SAME_KEY_REQUIRED',
+      errorCode: 'MALFORMED_RESPONSE',
     });
   });
+
+  it('does not clear another page pending write while restoring currentReportId', async () => {
+    const pinia = createPinia();
+    activate(pinia, workflow('ANALYSIS_GENERATED', REPORT_ID));
+    savePendingWrite({
+      operationType: 'GENERATE_PLAN',
+      workflowId: WORKFLOW_ID,
+      idempotencyKey: '550e8400-e29b-41d4-a716-446655440088',
+      request: { reportId: REPORT_ID },
+      recoveryState: 'SAME_KEY_REQUIRED',
+      errorCode: 'UNKNOWN_RESPONSE',
+    });
+    vi.stubGlobal('fetch', vi.fn(() => ok(report())));
+
+    mountPage(pinia);
+    await flushPromises();
+
+    expect(readPendingWrite(WORKFLOW_ID)?.operationType).toBe('GENERATE_PLAN');
+  });
+
+  it.each([
+    ['SAME_KEY_REQUIRED', 'UNKNOWN_RESPONSE', true],
+    ['NEW_KEY_REQUIRED', 'OPERATION_INTERRUPTED', false],
+  ] as const)(
+    'restores %s LLM pending form and submits the exact request with the required key policy',
+    async (recoveryState, errorCode, reusesKey) => {
+      const pinia = createPinia();
+      activate(pinia);
+      const originalKey = '550e8400-e29b-41d4-a716-446655440066';
+      savePendingWrite({
+        operationType: 'GENERATE_ANALYSIS',
+        workflowId: WORKFLOW_ID,
+        idempotencyKey: originalKey,
+        request: {
+          snapshotId: SNAPSHOT_ID,
+          engineMode: 'OPENAI_COMPATIBLE',
+          providerKey: 'deepseek-explicit',
+          modelId: 'model-frozen-v1',
+          promptVersion: 'danche-prediction-v1',
+          analysisOptions: {
+            targetTicketCount: 4,
+            minTicketCount: 2,
+            maxTicketCount: 5,
+            mainTicketRatio: 0.5,
+            defensiveTicketRatio: 0.3,
+            entertainmentTicketRatio: 0.2,
+            enableEntertainmentTicket: false,
+            entertainmentTicketMaxCost: 1.5,
+            maxParlayLegs: 3,
+            minPayoutRequirement: 1.8,
+            allowLowReturnTicket: true,
+            upsetCoverageLevel: 'STRONG',
+          },
+        },
+        recoveryState,
+        errorCode,
+      });
+      const persisted = readPendingWrite(WORKFLOW_ID);
+      const expectedBody = JSON.stringify(persisted?.request);
+      const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) => (
+        Promise.reject(new TypeError('stop after capture'))
+      ));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const wrapper = mountPage(pinia);
+      await flushPromises();
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(wrapper.get('[data-testid="analysis-engine-select"]').element).toHaveProperty(
+        'value',
+        'OPENAI_COMPATIBLE',
+      );
+      expect(wrapper.get('[data-testid="analysis-provider-input"]').element).toHaveProperty(
+        'value',
+        'deepseek-explicit',
+      );
+      expect(wrapper.get('[data-testid="analysis-model-input"]').element).toHaveProperty(
+        'value',
+        'model-frozen-v1',
+      );
+      expect(wrapper.get('[data-testid="option-target"]').element).toHaveProperty('value', '4');
+      expect(wrapper.get('[data-testid="option-upset"]').element).toHaveProperty('value', 'STRONG');
+      expect(wrapper.get('[data-testid="option-entertainment-enabled"]').element).toHaveProperty('checked', false);
+      expect(wrapper.text()).toContain('danche-prediction-v1');
+      const frozenControlIds = [
+        'analysis-engine-select',
+        'analysis-provider-input',
+        'analysis-model-input',
+        'option-target',
+        'option-min',
+        'option-max',
+        'option-main-ratio',
+        'option-defensive-ratio',
+        'option-entertainment-ratio',
+        'option-entertainment-cost',
+        'option-max-legs',
+        'option-min-payout',
+        'option-upset',
+        'option-entertainment-enabled',
+        'option-low-return',
+      ];
+      frozenControlIds.forEach((testId) => {
+        expect(wrapper.get(`[data-testid="${testId}"]`).element).toHaveProperty('disabled', true);
+      });
+      expect(wrapper.text()).toContain('恢复将提交冻结请求');
+      expect(wrapper.text()).toContain('需先完成恢复');
+
+      await wrapper.get('[data-testid="generate-analysis-button"]').trigger('click');
+      await flushPromises();
+
+      const call = fetchMock.mock.calls[0];
+      expect(String(call?.[1]?.body)).toBe(expectedBody);
+      const submittedKey = (call?.[1]?.headers as Record<string, string>)['Idempotency-Key'];
+      if (reusesKey) expect(submittedKey).toBe(originalKey);
+      else expect(submittedKey).not.toBe(originalKey);
+    },
+  );
 });

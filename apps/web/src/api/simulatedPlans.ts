@@ -1,53 +1,51 @@
-import type { ApiResult } from '@/types/api';
+import { requestJson } from '@/api/http';
 import type {
   SimulatedPlan,
   SimulatedPlanSavePayload,
-  StrategySimulationPayload
+  StrategySimulationPayload,
 } from '@/types/simulatedPlan';
 
-async function parseResult<T>(response: Response, fallbackMessage: string): Promise<T> {
-  if (!response.ok) {
-    throw new Error(`${fallbackMessage}: ${response.status}`);
-  }
-
-  const result = (await response.json()) as ApiResult<T>;
-  if (result.code !== 200) {
-    throw new Error(result.msg || fallbackMessage);
-  }
-
-  return result.data;
+export function normalizeStrategySimulationPayload(
+  payload: StrategySimulationPayload,
+): StrategySimulationPayload {
+  return { reportId: payload.reportId };
 }
 
-export async function simulateStrategy(payload: StrategySimulationPayload): Promise<SimulatedPlan> {
-  const response = await fetch('/api/strategies/simulate', {
+export function normalizeSimulatedPlanSavePayload(
+  payload: SimulatedPlanSavePayload,
+): SimulatedPlanSavePayload {
+  return {
+    generatedPlanId: payload.generatedPlanId,
+    operatorNote: payload.operatorNote.trim(),
+  };
+}
+
+export function simulateStrategy(
+  payload: StrategySimulationPayload,
+  idempotencyKey: string,
+): Promise<SimulatedPlan> {
+  return requestJson<SimulatedPlan>('/api/strategies/simulate', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(payload)
+    headers: { 'Idempotency-Key': idempotencyKey },
+    body: normalizeStrategySimulationPayload(payload),
   });
-
-  return parseResult<SimulatedPlan>(response, 'Simulated plan generation failed');
 }
 
-export async function saveSimulatedPlan(payload: SimulatedPlanSavePayload): Promise<SimulatedPlan> {
-  const response = await fetch('/api/simulated-plans', {
+export function saveSimulatedPlan(
+  payload: SimulatedPlanSavePayload,
+  idempotencyKey: string,
+): Promise<SimulatedPlan> {
+  return requestJson<SimulatedPlan>('/api/simulated-plans', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(payload)
+    headers: { 'Idempotency-Key': idempotencyKey },
+    body: normalizeSimulatedPlanSavePayload(payload),
   });
-
-  return parseResult<SimulatedPlan>(response, 'Simulated plan save failed');
 }
 
-export async function listSimulatedPlans(): Promise<SimulatedPlan[]> {
-  const response = await fetch('/api/simulated-plans');
-  return parseResult<SimulatedPlan[]>(response, 'Simulated plan list failed');
+export function listSimulatedPlans(): Promise<SimulatedPlan[]> {
+  return requestJson<SimulatedPlan[]>('/api/simulated-plans');
 }
 
-export async function getSimulatedPlan(planId: string): Promise<SimulatedPlan> {
-  const response = await fetch(`/api/simulated-plans/${encodeURIComponent(planId)}`);
-  return parseResult<SimulatedPlan>(response, 'Simulated plan detail failed');
+export function getSimulatedPlan(planId: string): Promise<SimulatedPlan> {
+  return requestJson<SimulatedPlan>(`/api/simulated-plans/${encodeURIComponent(planId)}`);
 }

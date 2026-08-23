@@ -1,60 +1,43 @@
 import { describe, expect, it } from 'vitest';
 
-import LegacyWorkflowEntry from '@/views/LegacyWorkflowEntry.vue';
-
 import router from './index';
 
-describe('router', () => {
-  it('exposes static public pages and workflow-scoped product pages', () => {
-    const routeNames = router.getRoutes().map((route) => route.name);
+function allowedStages(routeName: string): string[] {
+  const route = router.getRoutes().find((candidate) => candidate.name === routeName);
+  return route?.meta.allowedStages as string[];
+}
 
-    expect(routeNames).toEqual(
-      expect.arrayContaining([
-        'MarketingHome',
-        'Dashboard',
-        'OfficialSourceHub',
-        'ScreenshotUpload',
-        'OcrReviewWizard',
-        'WorkflowOcr',
-        'WorkflowOcrReview',
-        'MatchWorkspace',
-        'WorkflowMatchWorkspace',
-        'StrategySimulator',
-        'WorkflowAnalysis',
-        'SavedPlans',
-        'WorkflowPlans',
-        'WorkflowPlanDetail',
-        'ReviewCenter',
-        'StrategyLab',
-        'ModelSettings',
-        'AboutCompliance',
-      ]),
-    );
-    expect(router.getRoutes().find((route) => route.name === 'MarketingHome')?.path).toBe('/');
-    expect(router.getRoutes().find((route) => route.name === 'Dashboard')?.path).toBe('/dashboard');
-    expect(router.getRoutes().find((route) => route.name === 'WorkflowOcrReview')?.path)
-      .toBe('/workflows/:workflowId/ocr-review');
-    expect(router.getRoutes().find((route) => route.name === 'WorkflowAnalysis')?.path)
-      .toBe('/workflows/:workflowId/analysis');
-    expect(router.getRoutes().find((route) => route.path === '/')?.redirect).toBeUndefined();
+describe('workflow route stage allowlists', () => {
+  it('keeps analysis available from confirmation through result pending', () => {
+    expect(allowedStages('WorkflowAnalysis')).toEqual([
+      'CONFIRMED',
+      'ANALYSIS_GENERATED',
+      'PLAN_GENERATED',
+      'PENDING_RESULT',
+    ]);
   });
 
-  it('routes old workflow pages through the legacy session entry instead of direct stores', () => {
-    const legacyReview = router.getRoutes().find((route) => route.name === 'OcrReviewWizard');
-    const legacyMatch = router.getRoutes().find((route) => route.name === 'MatchWorkspace');
-
-    expect(legacyReview?.components?.default).toBe(LegacyWorkflowEntry);
-    expect(legacyMatch?.components?.default).toBe(LegacyWorkflowEntry);
-    expect(legacyReview?.props.default).toEqual({
-      targetName: 'WorkflowOcrReview',
-      title: '人工确认',
-    });
+  it('opens plan generation only once an authoritative report exists', () => {
+    expect(allowedStages('WorkflowPlans')).toEqual([
+      'ANALYSIS_GENERATED',
+      'PLAN_GENERATED',
+      'PENDING_RESULT',
+    ]);
   });
 
-  it('keeps stage gates on workflow child routes', () => {
-    expect(router.getRoutes().find((route) => route.name === 'WorkflowOcrReview')?.meta.allowedStages)
-      .toEqual(['WAITING_USER_CONFIRMATION', 'CONFIRMED']);
-    expect(router.getRoutes().find((route) => route.name === 'WorkflowMatchWorkspace')?.meta.allowedStages)
-      .toEqual(['CONFIRMED']);
+  it('opens plan detail only once an authoritative plan exists', () => {
+    expect(allowedStages('WorkflowPlanDetail')).toEqual([
+      'PLAN_GENERATED',
+      'PENDING_RESULT',
+    ]);
+  });
+
+  it('keeps the match workspace readable for all authoritative downstream stages', () => {
+    expect(allowedStages('WorkflowMatchWorkspace')).toEqual([
+      'CONFIRMED',
+      'ANALYSIS_GENERATED',
+      'PLAN_GENERATED',
+      'PENDING_RESULT',
+    ]);
   });
 });

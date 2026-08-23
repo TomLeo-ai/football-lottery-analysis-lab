@@ -1,18 +1,7 @@
-import type { AnalysisReport, ProbabilityInsight, RiskWarning, SimulatedSelection } from './analysis';
 import type { StrategyParameters } from './strategyParameter';
 
 export interface StrategySimulationPayload {
   reportId: string;
-  snapshotId: string;
-  inputSourceType: string;
-  engineType: string;
-  reportStatus: string;
-  currency?: string;
-  budgetAmount?: number;
-  strategyParameters?: StrategyParameters | null;
-  probabilityAnalysis: ProbabilityInsight[];
-  riskWarnings: RiskWarning[];
-  simulatedSelections: SimulatedSelection[];
 }
 
 export interface SimulatedPlanSavePayload {
@@ -65,20 +54,4 @@ export interface SimulatedPlan {
   operatorNote?: string | null;
   createdAt: string;
   updatedAt: string;
-}
-
-export function toStrategySimulationPayload(report: AnalysisReport): StrategySimulationPayload {
-  return {
-    reportId: report.reportId,
-    snapshotId: report.snapshotId,
-    inputSourceType: report.inputSourceType,
-    engineType: report.engineType,
-    reportStatus: report.reportStatus,
-    currency: report.strategyParameters?.currency,
-    budgetAmount: report.strategyParameters?.budgetAmount,
-    strategyParameters: report.strategyParameters ?? null,
-    probabilityAnalysis: report.probabilityAnalysis,
-    riskWarnings: report.riskWarnings,
-    simulatedSelections: report.simulatedSelections
-  };
 }

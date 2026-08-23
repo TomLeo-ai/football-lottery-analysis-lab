@@ -1,29 +1,45 @@
-import type { ConfirmedMarket, ConfirmedMatch } from './ocrWorkflow';
 import type { StrategyParameters } from './strategyParameter';
 
-export interface AnalysisGeneratePayload {
-  snapshotId: string;
-  sourceType: 'USER_SCREENSHOT_CONFIRMED';
-  analysisAllowed: boolean;
-  riskPreference: string;
-  budgetAmount: number;
-  currency: string;
-  engineMode?: 'MOCK_RULE_ENGINE' | 'OPENAI_COMPATIBLE';
-  providerKey?: string;
-  modelId?: string;
-  promptVersion?: string;
-  strategyParameters?: StrategyParameters;
-  matches: ConfirmedMatch[];
-  markets: ConfirmedMarket[];
+export interface AnalysisOptions {
+  targetTicketCount?: number;
+  minTicketCount?: number;
+  maxTicketCount?: number;
+  mainTicketRatio?: number;
+  defensiveTicketRatio?: number;
+  entertainmentTicketRatio?: number;
+  enableEntertainmentTicket?: boolean;
+  entertainmentTicketMaxCost?: number;
+  maxParlayLegs?: number;
+  minPayoutRequirement?: number | null;
+  allowLowReturnTicket?: boolean;
+  upsetCoverageLevel?: 'NONE' | 'LIGHT' | 'BALANCED' | 'STRONG';
 }
+
+interface AnalysisGenerateBase {
+  snapshotId: string;
+  analysisOptions: AnalysisOptions | null;
+}
+
+export interface MockAnalysisGeneratePayload extends AnalysisGenerateBase {
+  engineMode: 'MOCK_RULE_ENGINE';
+}
+
+export interface LlmAnalysisGeneratePayload extends AnalysisGenerateBase {
+  engineMode: 'OPENAI_COMPATIBLE';
+  providerKey: string;
+  modelId: string;
+  promptVersion: 'danche-prediction-v1';
+}
+
+export type AnalysisGeneratePayload = MockAnalysisGeneratePayload | LlmAnalysisGeneratePayload;
 
 export interface ProbabilityInsight {
   matchId: string;
-  matchDate: string;
-  league: string;
+  matchDate?: string;
+  league?: string;
   homeTeam: string;
   awayTeam: string;
-  kickoffTime: string;
+  kickoffTime?: string;
   selection: string;
   probabilityBand: string;
   rationale: string;
@@ -46,7 +62,12 @@ export interface SimulatedSelection {
 
 export interface AnalysisReport {
   reportId: string;
+  workflowId: string;
   snapshotId: string;
+  authorityType: string;
+  schemaVersion: 'ANALYSIS_REPORT_V2' | 'LEGACY_V1';
+  strategyDefaultsVersion: string | null;
+  authorityRevision: number | null;
   inputSourceType: string;
   engineType: string;
   reportStatus: string;
