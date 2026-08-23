@@ -538,7 +538,7 @@ public class JdbcAnalysisReportRepository implements AnalysisReportRepository {
         requirePayloadMatch("promptVersion", promptVersion, payload.promptVersion());
         requirePayloadMatch("safetyStatus", safetyStatus, payload.safetyStatus());
         requirePayloadMatch("llmAuditId", llmAuditId, payload.llmAuditId());
-        requirePayloadMatch("llmOutput", llmOutput, payload.llmOutput());
+        requirePayloadMatch("llmOutput", normalizeJsonNull(llmOutput), normalizeJsonNull(payload.llmOutput()));
         requirePayloadMatch("strategyDefaultsVersion", strategyDefaultsVersion, payload.strategyDefaultsVersion());
     }
 
@@ -546,6 +546,10 @@ public class JdbcAnalysisReportRepository implements AnalysisReportRepository {
         if (!Objects.equals(columnValue, payloadValue)) {
             throw v2IntegrityFailure(fieldName);
         }
+    }
+
+    private JsonNode normalizeJsonNull(JsonNode value) {
+        return value == null || value.isNull() ? null : value;
     }
 
     private IllegalStateException v2IntegrityFailure(String fieldName) {
