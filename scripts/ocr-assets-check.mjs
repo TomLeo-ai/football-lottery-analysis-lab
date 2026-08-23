@@ -54,7 +54,7 @@ export const OCR_PUBLIC_PACKAGE_VERSIONS = Object.freeze({
 });
 
 const REQUIRED_WEB_DEPENDENCIES = Object.freeze({
-  "@football-lottery-analysis-lab/ocr-core": "0.1.0",
+  "@football-lottery-analysis-lab/ocr-core": "0.2.0",
   ...OCR_PUBLIC_PACKAGE_VERSIONS,
 });
 
@@ -847,9 +847,9 @@ function validateLockfile(lockfile) {
   );
   if (
     internalName !== "@football-lottery-analysis-lab/ocr-core"
-    || internalVersion !== "0.1.0"
+    || internalVersion !== "0.2.0"
   ) {
-    fail("package-lock.json packages/ocr-core workspace must be @football-lottery-analysis-lab/ocr-core 0.1.0");
+    fail("package-lock.json packages/ocr-core workspace must be @football-lottery-analysis-lab/ocr-core 0.2.0");
   }
 
   for (const [packageName, expectedVersion] of Object.entries(OCR_PUBLIC_PACKAGE_VERSIONS)) {
@@ -1094,8 +1094,8 @@ async function validateInternalOcrCoreWorkspaceLink(paths) {
     "version",
     "installed OCR Core workspace target package.json",
   );
-  if (internalVersion !== "0.1.0") {
-    fail("installed OCR Core package version must equal 0.1.0");
+  if (internalVersion !== "0.2.0") {
+    fail("installed OCR Core package version must equal 0.2.0");
   }
 }
 

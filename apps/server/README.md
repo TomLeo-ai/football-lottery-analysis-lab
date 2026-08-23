@@ -2,13 +2,25 @@
 
 Spring Boot 3 backend API for Football Lottery Analysis Lab.
 
+The server is currently at the `v0.2.0` release-candidate stage. This is
+preparation and verification evidence only; it does not claim a tag, GitHub
+Release, deployment, user adoption, or production readiness.
+
 ## Current API
 
 ```text
 GET /api/official-links
+POST /api/ocr/workflows
+GET /api/ocr/workflows/{workflowId}
+POST /api/ocr/workflows/{workflowId}/ocr-candidates
+DELETE /api/ocr/workflows/{workflowId}
+GET /api/ocr/review-drafts/{ocrTaskId}
+PUT /api/ocr/review-drafts/{ocrTaskId}
+POST /api/ocr/review-drafts/{ocrTaskId}/confirm
+GET /api/ocr/snapshots/{snapshotId}
 POST /api/screenshots/tasks
 POST /api/ocr/parse-local-result
-POST /api/ocr/review/confirm
+POST /api/ocr/review/confirm (legacy 410 tombstone)
 GET /api/model-providers
 POST /api/model-providers/test
 GET /api/engine-settings
@@ -16,6 +28,7 @@ PUT /api/engine-settings
 GET /api/strategy-parameter-defaults
 PUT /api/strategy-parameter-defaults
 POST /api/analysis/generate
+GET /api/analysis/reports/{reportId}
 POST /api/strategies/simulate
 POST /api/simulated-plans
 GET /api/simulated-plans
@@ -88,17 +101,39 @@ start the backend with the MySQL profile.
 
 ## Persisted Workflow Data
 
-OCR APIs persist the local workflow:
+The Stage 9 OCR APIs persist a recoverable, authority-linked workflow:
+
+- `POST /api/ocr/workflows` creates an idempotent workflow whose server record
+  is the recovery anchor.
+- `POST /api/ocr/workflows/{workflowId}/ocr-candidates` accepts only minimum
+  structured `OCR_CANDIDATE_V2` data from the same-origin Web client. The
+  original image and complete OCR text are not server request fields.
+- `GET /api/ocr/review-drafts/{ocrTaskId}` restores an active persisted draft
+  after a browser reload or backend process restart.
+- `PUT /api/ocr/review-drafts/{ocrTaskId}` saves an editable WDL-only draft
+  with compare-and-swap revision checks and a UUID `Idempotency-Key`.
+- `POST /api/ocr/review-drafts/{ocrTaskId}/confirm` confirms only the expected
+  saved revision and creates an immutable `SERVER_CONFIRMED_V2` snapshot.
+- `GET /api/ocr/snapshots/{snapshotId}` restores that server authority.
+- `DELETE /api/ocr/workflows/{workflowId}` abandons the workflow without
+  converting local OCR evidence into a confirmed snapshot.
+
+The earlier Stage 8 endpoints remain documented for database and test
+compatibility:
 
 - `POST /api/screenshots/tasks` creates a `screenshot_task` row with
   `WAITING_LOCAL_OCR` and `serverOcrEnabled=false`.
 - `POST /api/ocr/parse-local-result` stores an `ocr_task` row and returns
   `WAITING_USER_CONFIRMATION` with `analysisAllowed=false`.
-- `POST /api/ocr/review/confirm` stores an `ocr_confirmed_snapshot` row with
-  `sourceType=USER_SCREENSHOT_CONFIRMED`.
+
+Stage 8 rows previously created with `sourceType=USER_SCREENSHOT_CONFIRMED`
+remain readable. The former `POST /api/ocr/review/confirm` route is now an
+intentional `410 Gone` tombstone; new clients must use the revisioned draft
+confirmation route above.
 
 `POST /api/analysis/generate` accepts only confirmed snapshots with
-`analysisAllowed=true`. If `engineMode` is omitted, it defaults to
+`analysisAllowed=true` and binds the report to workflow ID, snapshot ID,
+authority type, schema version, and confirmed revision. If `engineMode` is omitted, it defaults to
 `MOCK_RULE_ENGINE` and stores an `analysis_report` snapshot. If
 `engineMode=OPENAI_COMPATIBLE`, the backend resolves the selected provider from
 environment variables, calls the OpenAI-compatible Chat Completions endpoint,
@@ -107,12 +142,28 @@ validates JSON output, stores model metadata, and stores `llm_audit_id`.
 Simulated plan APIs persist saved plans:
 
 - `POST /api/strategies/simulate` accepts a generated analysis report and
-  returns a `GENERATED` simulated plan.
+  returns a `GENERATED` simulated plan with the same authority lineage.
 - `POST /api/simulated-plans` stores the plan in `simulated_plan` and
   `simulated_plan_item`, moving it through `GENERATED -> SAVED -> PENDING_RESULT`.
 - `GET /api/simulated-plans` reads saved simulated plans from the database.
 - `GET /api/simulated-plans/{planId}` reads saved simulated plan detail from the
-  database.
+  database and supports the Web plan deep link after restart.
+
+### Mutation and compatibility contract
+
+- Draft updates use compare-and-swap (CAS) on `expectedRevision`; confirmation
+  consumes that exact saved revision.
+- Workflow, draft, confirmation, analysis, plan generation, and plan save
+  mutations require UUID `Idempotency-Key` values. A repeated key returns the
+  original deterministic result only for the same operation and payload;
+  payload reuse is rejected.
+- Snapshot, report, and plan records carry workflow, schema, authority, and
+  revision lineage so downstream writes cannot substitute client-authored
+  authority IDs.
+- `v0.2.0` is an internal API breaking change for OCR confirmation. Flyway keeps
+  new authority columns nullable so legacy Stage 8 rows with `legacy null`
+  metadata remain readable, while all new Stage 9 writes require complete
+  authority lineage.
 
 Public result provider APIs persist Mock snapshots:
 

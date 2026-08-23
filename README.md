@@ -6,6 +6,11 @@ Football Lottery Analysis Lab is an open-source lab for football match data anal
 
 > Compliance notice: this project is non-official, simulation-only, and does not constitute lottery advice, profit promise, or winning guarantee.
 
+The repository currently contains the `v0.2.0` release candidate implementation.
+This wording describes preparation and verification evidence only: no `v0.2.0`
+tag or GitHub Release is claimed here, and it is not evidence of external
+adoption.
+
 ## Project Boundary
 
 This repository is designed around strict compliance boundaries:
@@ -14,6 +19,10 @@ This repository is designed around strict compliance boundaries:
 - No crawling, caching, mirroring, or republishing official lottery page data.
 - Official lottery information may only appear as external link entries with clear purpose and non-official notices.
 - Pre-match data must come from user-uploaded screenshots, local OCR, and manual user confirmation.
+- Screenshot pixels and complete OCR text remain inside the browser. Only the
+  minimum structured review candidate may cross the same-origin API boundary.
+- The release-candidate OCR workflow accepts WDL markets only; unsupported
+  market types are rejected rather than silently converted.
 - OCR output that has not been confirmed by the user must not enter analysis or simulated plan generation.
 - All examples must be fictional and marked as `DEMO DATA / FICTIONAL SAMPLE`.
 - Public result providers must use compliant sports result sources, user-authorized APIs, or mock data. They must not default to official lottery pages.
@@ -21,15 +30,18 @@ This repository is designed around strict compliance boundaries:
 - LLM prediction and review insight outputs must be JSON, pass safety validation, and keep rule-engine settlement as the final authority.
 - This project is not intended for minors. Do not use its simulated outputs to place wagers or make financial decisions, and comply with the laws that apply in your jurisdiction.
 
-## First Release Scope
+## v0.2.0 Release Candidate Scope
 
-The first runnable release will provide a closed simulation loop:
+The current candidate provides this closed, restart-recoverable simulation loop:
 
 1. Open an official external-link hub without showing official match, odds, result, or lottery data.
-2. Upload a fictional screenshot sample and run local OCR or mock OCR.
-3. Confirm extracted matches, markets, odds, budget, and risk preference.
-4. Generate a rule-based mock analysis report.
-5. Generate and save a simulated plan with immutable generation snapshot.
+2. Upload the rights-safe fictional sample and run real browser-local Tesseract
+   OCR, including local crop, rotation, and redaction controls.
+3. Edit and persist a revisioned structured draft, reload it after a backend
+   process restart, and explicitly confirm the selected revision.
+4. Create a server-authoritative confirmed snapshot and generate a rule-based
+   analysis report from that authority lineage.
+5. Generate and save a simulated plan, then reopen it through its direct link.
 6. Sync mock public results.
 7. Match results, settle the saved plan, and generate review records with failure reasons and strategy revision rules.
 
@@ -54,14 +66,36 @@ football-lottery-analysis-lab/
 
 ## Current Stage
 
-Stage 8 remains the baseline runnable release slice, and the current LLM dual-engine extension adds OpenAI-compatible prediction/review insight on top of that baseline while preserving the default rule engine:
+Stage 9 is the current `v0.2.0` release-candidate gate. Stage 8 remains a
+historical baseline and its command is retained for reproducibility.
 
 - Web pages: `/dashboard`, `/official-source-hub`, `/screenshot-upload`, `/ocr-review`, `/match-workspace`, `/strategy-simulator`, `/saved-plans`, `/review-center`, `/strategy-lab`, `/model-settings`, `/about-compliance`
 - PC layout uses a left navigation rail and top status bar; mobile layout keeps five bottom navigation entries.
-- `verify:stage8` runs compliance scan, type checks, frontend tests, frontend build, Maven verify, Stage 8 config checks, API smoke flow, and Playwright responsive checks at 375px, 768px, 1024px, and 1440px.
-- The closed loop covers fictional screenshot OCR, manual confirmation, Mock analysis, simulated plan save, Mock public result sync, result matching, settlement, review record, failure reason, and strategy revision rule.
+- `verify:stage9` is the current CI gate. It includes repository compliance,
+  package/server checks, the historical Stage 8 checks, and the private Stage 9
+  browser golden flow.
+- The Stage 9 golden flow exercises packaged Tesseract assets over same-origin
+  browser requests, persisted draft reload across a backend restart, explicit
+  confirmation, authority-bound Mock rule analysis, plan save, and plan deep
+  link recovery. It also audits browser storage, runtime traffic, logs, build
+  output, temporary files, and the isolated H2 database for the original image
+  and complete OCR text boundary.
+- Packaged OCR runtime and language assets keep their upstream license notices;
+  see [NOTICE](NOTICE) and the linked third-party license files.
+- Revision writes use compare-and-swap semantics, and mutating workflow,
+  analysis, and plan requests use UUID idempotency keys. Reusing a key with a
+  different payload is rejected.
 - Analysis can use `MOCK_RULE_ENGINE` or `OPENAI_COMPATIBLE`; omitted `engineMode` still defaults to `MOCK_RULE_ENGINE`.
 - Review can use `RULE_REVIEW_ONLY` or `RULE_REVIEW_WITH_LLM_INSIGHT`; settlement status is always produced by the rule engine.
+
+### v0.2.0 compatibility note
+
+The revisioned OCR workflow is an intentional internal API breaking change.
+Clients must use `/api/ocr/workflows`, `/api/ocr/review-drafts`, and an
+`Idempotency-Key`; the former `POST /api/ocr/review/confirm` endpoint remains a
+`410 Gone` tombstone so stale clients fail explicitly. Existing Stage 8 database
+rows remain readable through nullable authority columns (`legacy null`
+compatibility), but new writes must carry the Stage 9 authority lineage.
 
 ## Open-Source Maintenance
 
@@ -233,6 +267,16 @@ Run the Stage 8 verification chain:
 npm run verify:stage8
 ```
 
+Run the current Stage 9 release-candidate verification chain:
+
+```shell
+npm run verify:stage9
+```
+
+`verify:stage9` is the repository's current required CI gate. Its browser smoke
+uses an isolated temporary database and removes runtime evidence after the
+audit; it does not publish a release or send OCR input to an external service.
+
 Run the optional real DeepSeek integration smoke only after setting the backend
 process environment variable in the same PowerShell session:
 
@@ -333,9 +377,17 @@ The current APIs are available at:
 
 ```text
 http://127.0.0.1:8080/api/official-links
+POST http://127.0.0.1:8080/api/ocr/workflows
+GET  http://127.0.0.1:8080/api/ocr/workflows/{workflowId}
+POST http://127.0.0.1:8080/api/ocr/workflows/{workflowId}/ocr-candidates
+DELETE http://127.0.0.1:8080/api/ocr/workflows/{workflowId}
+GET  http://127.0.0.1:8080/api/ocr/review-drafts/{ocrTaskId}
+PUT  http://127.0.0.1:8080/api/ocr/review-drafts/{ocrTaskId}
+POST http://127.0.0.1:8080/api/ocr/review-drafts/{ocrTaskId}/confirm
+GET  http://127.0.0.1:8080/api/ocr/snapshots/{snapshotId}
 POST http://127.0.0.1:8080/api/screenshots/tasks
 POST http://127.0.0.1:8080/api/ocr/parse-local-result
-POST http://127.0.0.1:8080/api/ocr/review/confirm
+POST http://127.0.0.1:8080/api/ocr/review/confirm  # legacy 410 tombstone
 GET  http://127.0.0.1:8080/api/model-providers
 POST http://127.0.0.1:8080/api/model-providers/test
 GET  http://127.0.0.1:8080/api/engine-settings
@@ -343,6 +395,7 @@ PUT  http://127.0.0.1:8080/api/engine-settings
 GET  http://127.0.0.1:8080/api/strategy-parameter-defaults
 PUT  http://127.0.0.1:8080/api/strategy-parameter-defaults
 POST http://127.0.0.1:8080/api/analysis/generate
+GET  http://127.0.0.1:8080/api/analysis/reports/{reportId}
 POST http://127.0.0.1:8080/api/strategies/simulate
 POST http://127.0.0.1:8080/api/simulated-plans
 GET  http://127.0.0.1:8080/api/simulated-plans
@@ -357,7 +410,13 @@ GET  http://127.0.0.1:8080/api/simulated-plans/{planId}/review
 
 ## Development Status
 
-This repository is under staged implementation. Stage 8 is runnable and covers the official external-link hub, fictional screenshot OCR confirmation, rule-engine analysis, optional OpenAI-compatible LLM prediction, simulated plan generation/save, Mock public result provider sync/status, automatic review, optional LLM review insight, responsive navigation, H2/Flyway persistence, and Stage 8 automated smoke verification.
+This repository is under staged implementation. Stage 9 is a runnable
+`v0.2.0` release candidate with real browser-local OCR, restart-recoverable
+drafts and workflow state, server-authoritative snapshot/report/plan lineage,
+rule-engine analysis, plan deep links, H2/Flyway persistence, and a private
+golden-flow CI gate. Stage 8 remains available as historical verification.
+Passing these checks is release-preparation evidence, not a tag, GitHub Release,
+user count, production deployment, or adoption claim.
 
 ## License
 

@@ -9,6 +9,7 @@ import org.footballlab.ocr.service.OcrConfirmationService;
 import org.footballlab.ocr.service.OcrReviewDraftService;
 import org.footballlab.ocr.service.OcrWorkflowTransactionService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -28,6 +29,11 @@ public class OcrReviewDraftController {
     ) {
         this.reviewDraftService = reviewDraftService;
         this.confirmationService = confirmationService;
+    }
+
+    @GetMapping("/api/ocr/review-drafts/{ocrTaskId}")
+    public Result<OcrReviewDraftResponse> getDraft(@PathVariable String ocrTaskId) {
+        return Result.success(reviewDraftService.getDraft(ocrTaskId));
     }
 
     @PutMapping("/api/ocr/review-drafts/{ocrTaskId}")

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { ApiRequestError } from '@/api/http';
 
+import * as ocrWorkflowApi from './ocrWorkflow';
 import {
   abandonOcrWorkflow,
   confirmOcrReviewDraft,
@@ -29,6 +30,38 @@ function lastBody(fetchMock: ReturnType<typeof vi.fn>): Record<string, unknown> 
 }
 
 describe('ocr workflow API client', () => {
+  it('loads a persisted review draft through the encoded read-only endpoint', async () => {
+    const fetchMock = stubFetch({
+      code: 200,
+      msg: 'success',
+      data: {
+        ocrTaskId: 'ocr/task 001',
+        workflowId: 'workflow-001',
+        revision: 2,
+        draftStatus: 'ACTIVE',
+        riskPreference: 'BALANCED',
+        budgetAmount: 20,
+        currency: 'CNY',
+        matches: [],
+        markets: [],
+        schemaVersion: 'OCR_REVIEW_DRAFT_V2',
+        updatedAt: '2026-08-24T00:00:00Z',
+      },
+    });
+    const api = ocrWorkflowApi as typeof ocrWorkflowApi & {
+      getOcrReviewDraft: (ocrTaskId: string) => Promise<unknown>;
+    };
+
+    expect(api.getOcrReviewDraft).toBeTypeOf('function');
+    await api.getOcrReviewDraft('ocr/task 001');
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/ocr/review-drafts/ocr%2Ftask%20001', {
+      method: 'GET',
+      headers: {},
+      body: undefined,
+    });
+  });
+
   it('creates a v2 workflow with an exact minimized request shape and idempotency key', async () => {
     const fetchMock = stubFetch({
       code: 201,

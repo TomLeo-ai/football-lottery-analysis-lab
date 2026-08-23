@@ -624,6 +624,7 @@ describe('ScreenshotUpload', () => {
     testHarness.workspaceCreate.mockResolvedValue(workspace);
     const runController = createRunController();
     testHarness.runController = runController;
+    testHarness.routerPush.mockRejectedValueOnce(new Error('navigation rejected'));
     const { wrapper, pinia } = mountPage();
     await declareUserOwnedSource(wrapper);
     await selectFile(wrapper, new File(['safe'], 'cancel.png', { type: 'image/png' }));
@@ -640,7 +641,7 @@ describe('ScreenshotUpload', () => {
 
   it('keeps review unavailable before local candidates and enables the local review transition after OCR', async () => {
     testHarness.workspaceCreate.mockResolvedValue(createWorkspaceController());
-    const { wrapper } = mountPage();
+    const { wrapper, pinia } = mountPage();
 
     expect(wrapper.get('[data-testid="continue-review-unavailable"]').attributes('disabled')).toBeDefined();
     expect(wrapper.find('[data-testid="continue-review"]').exists()).toBe(false);
@@ -657,5 +658,8 @@ describe('ScreenshotUpload', () => {
       params: { workflowId: 'workflow-001' },
     });
     expect(wrapper.text()).toContain('Observed League 42');
+
+    wrapper.unmount();
+    expect(pinia.state.value.localOcrSession?.candidateBatch).not.toBeNull();
   });
 });

@@ -5,5 +5,7 @@ import org.footballlab.ocr.domain.OcrReviewDraftUpdateRequest;
 
 public interface OcrReviewDraftService {
 
+    OcrReviewDraftResponse getDraft(String ocrTaskId);
+
     OcrReviewDraftResponse saveDraft(String ocrTaskId, OcrReviewDraftUpdateRequest request, String idempotencyKey);
 }

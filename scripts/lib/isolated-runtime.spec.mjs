@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { EventEmitter } from 'node:events';
 import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { PassThrough } from 'node:stream';
 import test from 'node:test';
 
@@ -175,8 +176,10 @@ test('sanitized tails are bounded and never retain request bodies or credentials
 });
 
 test('file H2 URLs stay inside the test-owned temporary root', () => {
-  const url = createFileH2Url('C:\\Temp\\owned stage8', 'stage8');
-  assert.match(url, /^jdbc:h2:file:C:\/Temp\/owned stage8\/stage8;/);
+  const temporaryRoot = resolve('owned stage8');
+  const databasePath = resolve(temporaryRoot, 'stage8').replaceAll('\\', '/');
+  const url = createFileH2Url(temporaryRoot, 'stage8');
+  assert.ok(url.startsWith(`jdbc:h2:file:${databasePath};`));
   assert.match(url, /DB_CLOSE_ON_EXIT=FALSE/);
   assert.doesNotMatch(url, /apps\/server\/data/);
 });

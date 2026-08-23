@@ -356,15 +356,15 @@ function createLockfile() {
       },
       "apps/web": {
         name: "@football-lottery-analysis-lab/web",
-        version: "0.1.0",
+        version: "0.2.0",
         dependencies: {
-          "@football-lottery-analysis-lab/ocr-core": "0.1.0",
+          "@football-lottery-analysis-lab/ocr-core": "0.2.0",
           ...PUBLIC_PACKAGES,
         },
       },
       "packages/ocr-core": {
         name: "@football-lottery-analysis-lab/ocr-core",
-        version: "0.1.0",
+        version: "0.2.0",
       },
       "node_modules/@football-lottery-analysis-lab/ocr-core": {
         resolved: "packages/ocr-core",
@@ -392,16 +392,16 @@ async function createFixture({ withTargets = true } = {}) {
   await writeJson(path.join(rootDirectory, "package-lock.json"), createLockfile());
   await writeJson(path.join(rootDirectory, "apps/web/package.json"), {
     name: "@football-lottery-analysis-lab/web",
-    version: "0.1.0",
+    version: "0.2.0",
     private: true,
     dependencies: {
-      "@football-lottery-analysis-lab/ocr-core": "0.1.0",
+      "@football-lottery-analysis-lab/ocr-core": "0.2.0",
       ...PUBLIC_PACKAGES,
     },
   });
   await writeJson(path.join(rootDirectory, "packages/ocr-core/package.json"), {
     name: "@football-lottery-analysis-lab/ocr-core",
-    version: "0.1.0",
+    version: "0.2.0",
   });
   await createDirectoryLink(
     internalWorkspaceTarget(rootDirectory),
@@ -826,7 +826,7 @@ if (loadFailure) {
       await unlink(linkPath);
       await writeJson(path.join(linkPath, "package.json"), {
         name: "@football-lottery-analysis-lab/ocr-core",
-        version: "0.1.0",
+        version: "0.2.0",
       });
       await removeWorkerSource(rootDirectory);
       await expectRejected(
@@ -841,7 +841,7 @@ if (loadFailure) {
     try {
       await writeJson(path.join(externalTarget, "package.json"), {
         name: "@football-lottery-analysis-lab/ocr-core",
-        version: "0.1.0",
+        version: "0.2.0",
       });
       await withFixture(async (rootDirectory) => {
         const linkPath = internalWorkspaceLink(rootDirectory);
@@ -863,7 +863,7 @@ if (loadFailure) {
       const wrongTarget = path.join(rootDirectory, "packages/not-ocr-core");
       await writeJson(path.join(wrongTarget, "package.json"), {
         name: "@football-lottery-analysis-lab/ocr-core",
-        version: "0.1.0",
+        version: "0.2.0",
       });
       const linkPath = internalWorkspaceLink(rootDirectory);
       await unlink(linkPath);
@@ -912,7 +912,7 @@ if (loadFailure) {
       await removeWorkerSource(rootDirectory);
       await expectRejected(
         () => checker.checkOcrAssets({ rootDirectory }),
-        /installed.*ocr core.*version.*0\.1\.0/i,
+        /installed.*ocr core.*version.*0\.2\.0/i,
       );
     });
   });

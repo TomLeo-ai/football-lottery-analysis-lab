@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia';
 
-import { getConfirmedSnapshot, getOcrWorkflow } from '@/api/ocrWorkflow';
+import { getConfirmedSnapshot, getOcrReviewDraft, getOcrWorkflow } from '@/api/ocrWorkflow';
 import type {
+  OcrReviewDraftResponse,
   OcrTask,
   OcrWorkflowAggregate,
   ScreenshotTask,
@@ -14,6 +15,7 @@ export type WorkflowHydrationStatus = 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
 export interface WorkflowHydrationFetchers {
   readonly fetchWorkflow?: (workflowId: string) => Promise<OcrWorkflowAggregate>;
   readonly fetchSnapshot?: (snapshotId: string) => Promise<UserConfirmedSnapshot>;
+  readonly fetchDraft?: (ocrTaskId: string) => Promise<OcrReviewDraftResponse>;
 }
 
 interface OcrWorkflowState {
@@ -22,6 +24,7 @@ interface OcrWorkflowState {
   workflow: OcrWorkflowAggregate | null;
   screenshotTask: ScreenshotTask | null;
   reviewDraft: OcrTask | null;
+  persistedReviewDraft: OcrReviewDraftResponse | null;
   confirmedSnapshot: UserConfirmedSnapshot | null;
   snapshotsById: Record<string, UserConfirmedSnapshot>;
   errorMessage: string | null;
@@ -52,8 +55,19 @@ function snapshotBelongsToWorkflow(
     && snapshot.analysisAllowed === true;
 }
 
-function hasId(value: string | null): boolean {
+function hasId(value: string | null): value is string {
   return value !== null && value.trim().length > 0;
+}
+
+function draftBelongsToWorkflow(
+  workflow: OcrWorkflowAggregate,
+  draft: OcrReviewDraftResponse,
+): boolean {
+  return workflow.currentStage === 'WAITING_USER_CONFIRMATION'
+    && workflow.currentOcrTaskId === draft.ocrTaskId
+    && workflow.workflowId === draft.workflowId
+    && draft.draftStatus === 'ACTIVE'
+    && draft.schemaVersion === 'OCR_REVIEW_DRAFT_V2';
 }
 
 function assertWorkflowAuthorityIds(workflow: OcrWorkflowAggregate): void {
@@ -88,6 +102,7 @@ export const useOcrWorkflowStore = defineStore('ocrWorkflow', {
     workflow: null,
     screenshotTask: null,
     reviewDraft: null,
+    persistedReviewDraft: null,
     confirmedSnapshot: null,
     snapshotsById: {},
     errorMessage: null,
@@ -99,10 +114,15 @@ export const useOcrWorkflowStore = defineStore('ocrWorkflow', {
     },
     setReviewDraft(task: OcrTask) {
       this.reviewDraft = task;
+      this.persistedReviewDraft = null;
       this.confirmedSnapshot = null;
+    },
+    setPersistedReviewDraft(draft: OcrReviewDraftResponse) {
+      this.persistedReviewDraft = draft;
     },
     setConfirmedSnapshot(snapshot: UserConfirmedSnapshot) {
       this.confirmedSnapshot = snapshot;
+      this.persistedReviewDraft = null;
       this.snapshotsById[snapshot.snapshotId] = snapshot;
       if (snapshot.workflowId !== undefined && snapshot.workflowId !== null) {
         this.activeWorkflowId = snapshot.workflowId;
@@ -114,6 +134,7 @@ export const useOcrWorkflowStore = defineStore('ocrWorkflow', {
       this.activeWorkflowId = null;
       this.workflow = null;
       this.reviewDraft = null;
+      this.persistedReviewDraft = null;
       this.confirmedSnapshot = null;
       this.errorMessage = null;
       this.hydrationToken += 1;
@@ -134,6 +155,7 @@ export const useOcrWorkflowStore = defineStore('ocrWorkflow', {
         this.status = 'ERROR';
         this.workflow = null;
         this.reviewDraft = null;
+        this.persistedReviewDraft = null;
         this.confirmedSnapshot = null;
         this.errorMessage = error.message;
         throw error;
@@ -141,6 +163,7 @@ export const useOcrWorkflowStore = defineStore('ocrWorkflow', {
 
       const fetchWorkflow = fetchers.fetchWorkflow ?? getOcrWorkflow;
       const fetchSnapshot = fetchers.fetchSnapshot ?? getConfirmedSnapshot;
+      const fetchDraft = fetchers.fetchDraft ?? getOcrReviewDraft;
 
       try {
         const workflow = await fetchWorkflow(workflowId);
@@ -155,6 +178,20 @@ export const useOcrWorkflowStore = defineStore('ocrWorkflow', {
             throw new Error('工作流与确认快照不匹配，已阻断恢复。');
           }
         }
+        let persistedDraft: OcrReviewDraftResponse | null = null;
+        if (
+          workflow.currentStage === 'WAITING_USER_CONFIRMATION'
+          && hasId(workflow.currentOcrTaskId)
+        ) {
+          const fetchedDraft = await fetchDraft(workflow.currentOcrTaskId);
+          if (!draftBelongsToWorkflow(workflow, fetchedDraft)) {
+            throw new Error('工作流与 OCR review draft 不匹配，已阻断恢复。');
+          }
+          // The server creates an empty revision-zero placeholder before the
+          // operator has saved anything. It is authoritative, but not a
+          // recoverable user draft.
+          persistedDraft = fetchedDraft.revision > 0 ? fetchedDraft : null;
+        }
         if (token !== this.hydrationToken) return null;
 
         const existingDraft = this.reviewDraft?.ocrTaskId === workflow.currentOcrTaskId
@@ -164,6 +201,7 @@ export const useOcrWorkflowStore = defineStore('ocrWorkflow', {
         this.workflow = workflow;
         this.activeWorkflowId = workflow.workflowId;
         this.reviewDraft = existingDraft;
+        this.persistedReviewDraft = persistedDraft;
         this.confirmedSnapshot = snapshot;
         if (snapshot !== null) this.snapshotsById[snapshot.snapshotId] = snapshot;
         this.status = 'READY';
@@ -175,6 +213,7 @@ export const useOcrWorkflowStore = defineStore('ocrWorkflow', {
         this.status = 'ERROR';
         this.workflow = null;
         this.reviewDraft = null;
+        this.persistedReviewDraft = null;
         this.confirmedSnapshot = null;
         this.errorMessage = describeHydrationError(error);
         throw error;
@@ -223,6 +262,12 @@ export const useOcrWorkflowStore = defineStore('ocrWorkflow', {
 
         this.workflow = workflow;
         this.activeWorkflowId = workflow.workflowId;
+        if (
+          workflow.currentStage !== 'WAITING_USER_CONFIRMATION'
+          || workflow.currentOcrTaskId !== this.persistedReviewDraft?.ocrTaskId
+        ) {
+          this.persistedReviewDraft = null;
+        }
         this.confirmedSnapshot = snapshot;
         if (snapshot !== null) this.snapshotsById[snapshot.snapshotId] = snapshot;
         this.errorMessage = null;
