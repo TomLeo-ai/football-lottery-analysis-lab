@@ -4,7 +4,11 @@ import { test } from 'node:test';
 import {
   LLM_SECRET_ENV_NAMES,
   STAGE9_STAGES,
+  assertApiError,
+  assertBrowserStorageBoundary,
   assertBuildIdentities,
+  assertStage9NetworkUrlAllowed,
+  assertWarmLanguageCache,
   runStage9,
   sanitizeChildEnvironment,
   selectExecutableJar,
@@ -17,6 +21,57 @@ const HASH = 'a'.repeat(64);
 const TEMP_ROOT = 'C:\\stage9-tests\\football-lab-stage9-fixed';
 const FIRST_PORT = 43_123;
 const WEB_PORT = 43_124;
+
+test('real adapter contracts block remote traffic and accept only the reviewed final browser storage', () => {
+  const origin = `http://127.0.0.1:${WEB_PORT}`;
+  assert.equal(assertStage9NetworkUrlAllowed(`${origin}/api/ocr/workflows`, origin), 'same-origin');
+  assert.equal(assertStage9NetworkUrlAllowed('data:image/png;base64,AA==', origin), 'data');
+  assert.equal(assertStage9NetworkUrlAllowed(`blob:${origin}/${RUN_ID}`, origin), 'blob');
+  assert.throws(() => assertStage9NetworkUrlAllowed('https://example.com/model', origin), /blocked/i);
+  assert.throws(() => assertStage9NetworkUrlAllowed(`blob:https://example.com/${RUN_ID}`, origin), /blocked/i);
+
+  assert.equal(assertWarmLanguageCache(
+    { eng: 1, chiSim: 1 },
+    { eng: 1, chiSim: 1 },
+  ), true);
+  assert.throws(
+    () => assertWarmLanguageCache({ eng: 1, chiSim: 1 }, { eng: 2, chiSim: 1 }),
+    /warm cache/i,
+  );
+
+  assert.equal(assertBrowserStorageBoundary({
+    localStorage: [],
+    sessionStorage: [{ key: 'football-lab:v2:workflowId', value: `workflow-${RUN_ID}` }],
+    cacheStorageKeys: [],
+    serviceWorkerRegistrations: 0,
+    indexedDb: [{
+      name: 'keyval-store',
+      stores: [{
+        name: 'keyval',
+        keys: [
+          'football-lab-ocr/tesseract-7.0.0/4.0.0_best_int/eng.traineddata',
+          'football-lab-ocr/tesseract-7.0.0/4.0.0_best_int/chi_sim.traineddata',
+        ],
+      }],
+    }],
+  }), true);
+  assert.throws(() => assertBrowserStorageBoundary({
+    localStorage: [{ key: 'draft', value: 'unsafe' }],
+    sessionStorage: [],
+    cacheStorageKeys: [],
+    serviceWorkerRegistrations: 0,
+    indexedDb: [],
+  }), /storage/i);
+
+  assert.equal(assertApiError({
+    status: 409,
+    body: { error: { errorCode: 'IDEMPOTENCY_KEY_REUSED' } },
+  }, 409, 'IDEMPOTENCY_KEY_REUSED'), true);
+  assert.throws(
+    () => assertApiError({ status: 200, body: { data: {} } }, 409, 'IDEMPOTENCY_KEY_REUSED'),
+    /negative API/i,
+  );
+});
 
 test('pure runner contracts sanitize secrets, select one executable JAR, and validate both identities', () => {
   const sourceEnvironment = {
