@@ -1,53 +1,71 @@
-import { spawn, spawnSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { strict as assert } from 'node:assert';
 import { chromium } from '@playwright/test';
 import {
-  createStage8DataSourceUrl,
-  createStage8SpawnOptions
-} from './stage8-runtime.mjs';
+  createFileH2Url,
+  createIsolatedRuntime,
+  runWithCleanup
+} from './lib/isolated-runtime.mjs';
 
 const rootDir = fileURLToPath(new URL('..', import.meta.url));
-const apiBase = process.env.STAGE8_API_BASE ?? 'http://127.0.0.1:8080';
-const webBase = process.env.STAGE8_WEB_BASE ?? 'http://127.0.0.1:5173';
-const stage8DataSourceUrl = createStage8DataSourceUrl();
-const spawned = [];
+const runtime = createIsolatedRuntime();
+let apiBase;
+let webBase;
 
 async function main() {
-  try {
-    await ensureServices();
-    await verifyApiFlow();
-    await verifyResponsiveUi();
-  } finally {
-    await stopSpawnedServices();
-  }
-}
+  const temporaryRoot = await runtime.createTempRoot('football-lab-stage8-');
+  const dataSourceUrl = createFileH2Url(temporaryRoot, 'stage8');
+  const server = await runtime.startProcess({
+    name: 'server',
+    tool: 'mvn',
+    args: [
+      '-f',
+      'apps/server/pom.xml',
+      'spring-boot:run',
+      '-Dspring-boot.run.arguments=--server.port=0 --server.address=127.0.0.1 --spring.h2.console.enabled=false'
+    ],
+    cwd: rootDir,
+    env: { ...process.env, SPRING_DATASOURCE_URL: dataSourceUrl },
+    readiness: /Tomcat started on port (\d+)/,
+    readyValue: (match) => Number(match[1])
+  });
+  apiBase = `http://127.0.0.1:${server.readyValue}`;
 
-async function ensureServices() {
-  if (!(await isReachable(`${apiBase}/api/official-links`))) {
-    spawned.push(spawnService('server', 'mvn -f apps/server/pom.xml spring-boot:run', 8080));
-  }
-  if (!(await isReachable(`${webBase}/dashboard`))) {
-    spawned.push(spawnService('web', 'npm run dev:web', 5173));
-  }
+  let webPort;
+  do {
+    webPort = randomInt(49_152, 65_536);
+  } while (webPort === server.readyValue);
+
+  const web = await runtime.startProcess({
+    name: 'web',
+    tool: 'npm',
+    args: [
+      'run',
+      'dev',
+      '-w',
+      'apps/web',
+      '--',
+      '--host',
+      '127.0.0.1',
+      '--port',
+      String(webPort),
+      '--strictPort'
+    ],
+    cwd: rootDir,
+    env: { ...process.env, LOCAL_API_TARGET: apiBase },
+    readiness: /Local:\s+http:\/\/127\.0\.0\.1:(\d+)/,
+    readyValue: (match) => Number(match[1])
+  });
+  webBase = `http://127.0.0.1:${web.readyValue}`;
 
   await waitForUrl(`${apiBase}/api/official-links`, 'backend API');
   await waitForUrl(`${webBase}/dashboard`, 'frontend app');
-}
-
-function spawnService(name, command, port) {
-  const child = spawn(command, createStage8SpawnOptions({
-    name,
-    rootDir,
-    dataSourceUrl: stage8DataSourceUrl
-  }));
-
-  child.stdout.on('data', (chunk) => process.stdout.write(`[${name}] ${chunk}`));
-  child.stderr.on('data', (chunk) => process.stderr.write(`[${name}] ${chunk}`));
-  return { child, port };
+  await verifyApiFlow();
+  await verifyResponsiveUi(temporaryRoot);
 }
 
 async function verifyApiFlow() {
@@ -181,10 +199,10 @@ async function verifyApiFlow() {
   assert.equal(review.data.reviewStatus, 'NEEDS_REVIEW');
 }
 
-async function verifyResponsiveUi() {
-  await mkdir(new URL('../output/playwright/', import.meta.url), { recursive: true });
+async function verifyResponsiveUi(temporaryRoot) {
+  const screenshotRoot = join(temporaryRoot, 'playwright');
+  await mkdir(screenshotRoot, { recursive: true });
   const browser = await chromium.launch();
-  const page = await browser.newPage();
   const routes = [
     ['/dashboard', '闭环流程仪表盘'],
     ['/official-source-hub', '官方外链入口'],
@@ -206,6 +224,7 @@ async function verifyResponsiveUi() {
   ];
 
   try {
+    const page = await browser.newPage();
     for (const viewport of viewports) {
       await page.setViewportSize(viewport);
       for (const [path, title] of routes) {
@@ -228,7 +247,7 @@ async function verifyResponsiveUi() {
       );
       assert.equal(visibleNavCount, viewport.width <= 900 ? 5 : 11);
       await page.screenshot({
-        path: `output/playwright/stage8-dashboard-${viewport.width}.png`,
+        path: join(screenshotRoot, `stage8-dashboard-${viewport.width}.png`),
         fullPage: true
       });
     }
@@ -321,7 +340,7 @@ async function parseJson(response, path) {
   return result;
 }
 
-async function isReachable(url) {
+async function respondsSuccessfully(url) {
   try {
     const response = await fetch(url);
     return response.ok;
@@ -333,7 +352,7 @@ async function isReachable(url) {
 async function waitForUrl(url, label) {
   const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
-    if (await isReachable(url)) {
+    if (await respondsSuccessfully(url)) {
       return;
     }
     await delay(1000);
@@ -341,64 +360,11 @@ async function waitForUrl(url, label) {
   throw new Error(`Timed out waiting for ${label}: ${url}`);
 }
 
-async function stopSpawnedServices() {
-  stopSpawnedServicesSync();
-  if (spawned.length > 0) {
-    await delay(1500);
-  }
-}
-
-function stopSpawnedServicesSync() {
-  for (const service of spawned) {
-    const child = service.child;
-    if (!child.pid) {
-      continue;
-    }
-    if (process.platform === 'win32') {
-      if (child.exitCode === null) {
-        spawnSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore' });
-      }
-      stopWindowsPortProcess(service.port);
-    } else {
-      if (child.exitCode !== null) {
-        continue;
-      }
-      try {
-        process.kill(-child.pid, 'SIGTERM');
-      } catch {
-        child.kill('SIGTERM');
-      }
-    }
-  }
-}
-
-function stopWindowsPortProcess(port) {
-  if (!port) {
-    return;
-  }
-  const command = [
-    `$ids = Get-NetTCPConnection -LocalPort ${port} -State Listen -ErrorAction SilentlyContinue`,
-    '| Select-Object -ExpandProperty OwningProcess -Unique;',
-    'foreach ($id in $ids) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }'
-  ].join(' ');
-  spawnSync('powershell.exe', ['-NoProfile', '-Command', command], { stdio: 'ignore' });
-}
-
-process.on('exit', stopSpawnedServicesSync);
-process.on('SIGINT', () => {
-  stopSpawnedServicesSync();
-  process.exit(130);
-});
-process.on('SIGTERM', () => {
-  stopSpawnedServicesSync();
-  process.exit(143);
-});
-
-main()
+runWithCleanup({ execute: main, cleanup: () => runtime.cleanup() })
   .then(() => {
     console.log('Stage 8 smoke check passed.');
   })
   .catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
+    console.error(error.message);
+    process.exitCode = error.exitCode ?? 1;
   });
