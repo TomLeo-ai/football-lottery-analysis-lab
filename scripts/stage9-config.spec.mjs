@@ -11,6 +11,19 @@ const ocrCorePackage = readJson('packages/ocr-core/package.json');
 const lockfile = readJson('package-lock.json');
 const serverPom = readFileSync(new URL('apps/server/pom.xml', repositoryUrl), 'utf8');
 const workflow = readFileSync(new URL('.github/workflows/compliance.yml', repositoryUrl), 'utf8');
+const publicDocs = {
+  readme: readFileSync(new URL('README.md', repositoryUrl), 'utf8'),
+  server: readFileSync(new URL('apps/server/README.md', repositoryUrl), 'utf8'),
+  privacy: readFileSync(new URL('docs/privacy.md', repositoryUrl), 'utf8'),
+  compliance: readFileSync(new URL('docs/compliance.md', repositoryUrl), 'utf8'),
+  ocr: readFileSync(new URL('docs/screenshot-ocr.md', repositoryUrl), 'utf8'),
+  architecture: readFileSync(new URL('docs/product-architecture.md', repositoryUrl), 'utf8'),
+  database: readFileSync(new URL('docs/database.md', repositoryUrl), 'utf8'),
+  maintenance: readFileSync(new URL('docs/oss-maintenance.md', repositoryUrl), 'utf8'),
+  notice: readFileSync(new URL('NOTICE', repositoryUrl), 'utf8'),
+  changelog: readFileSync(new URL('CHANGELOG.md', repositoryUrl), 'utf8'),
+  release: readFileSync(new URL('docs/releases/v0.2.0.md', repositoryUrl), 'utf8'),
+};
 
 for (const [name, version] of [
   ['root package', rootPackage.version],
@@ -113,5 +126,31 @@ assert.throws(
   () => assertWorkflowContract(`${workflow.trimEnd()}\n      - name: Extra\n        run: npm test\n`),
   /exact approved six-step/u,
 );
+
+const documentation = Object.values(publicDocs).join('\n');
+assert.match(publicDocs.readme, /v0\.2\.0/iu);
+assert.match(publicDocs.readme, /npm run verify:stage9/u);
+assert.match(documentation, /real local Tesseract OCR/iu);
+assert.match(documentation, /(original image|原图)[\s\S]{0,240}(raw OCR text|完整 OCR 文本)/iu);
+assert.match(documentation, /(editable draft|可编辑草稿)/iu);
+assert.match(documentation, /(process restart|进程重启)[\s\S]{0,240}(recovery|recover|恢复)/iu);
+assert.match(documentation, /(authority lineage|权威链)/iu);
+assert.match(documentation, /(legacy null compatibility|legacy compatibility|旧版空值兼容)/iu);
+assert.match(publicDocs.release, /internal API breaking change/iu);
+assert.match(publicDocs.notice, /docs\/third-party-ocr\.md/u);
+assert.match(
+  publicDocs.release,
+  /(does not|不代表)[\s\S]{0,240}(tag|GitHub Release)[\s\S]{0,240}(adoption|采用)/iu,
+);
+
+for (const staleClaim of [
+  /browser Mock OCR/iu,
+  /in-memory-only workflow/iu,
+  /当前实现为首版内存闭环/u,
+  /Stage 8 (remains|is) (the )?current[^\n]*(gate|release)/iu,
+  /verify:stage8`? 是当前/u,
+]) {
+  assert.doesNotMatch(documentation, staleClaim, `public docs must not retain stale claim ${staleClaim}`);
+}
 
 process.stdout.write('Stage 9 configuration check passed.\n');

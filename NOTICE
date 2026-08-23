@@ -21,5 +21,11 @@ OCR runtime and embedded components
 - zlib@21767c654d31d2dccdde4330529775c6c5fd5389
 - openlibm@ae2d91698508701c83cab83714d42a1146dccf85
 
-The detailed source, license, and redistribution audit is in docs/third-party-ocr.md. The machine-readable authority is third_party/ocr/manifest.json. This notice records provenance and does not provide an endorsement, warranty, or independent grant of third-party data, model, or trademark rights.
+The detailed source, license, and redistribution audit is in:
+
+- docs/third-party-ocr.md
+- third_party/ocr/manifest.json (machine-readable inventory and checksums)
+- third_party/ocr/licenses/ (the retained license and notice texts named by the manifest)
+
+Review those files before redistributing the packaged OCR runtime. This notice records engineering provenance; it is not legal advice, legal clearance, an endorsement, a warranty, or an independent grant of rights in third-party software, trained data, source data, models, names, or trademarks.
 

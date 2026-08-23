@@ -36,13 +36,20 @@ Before publishing a release, the maintainer must:
 
 1. Review the diff and confirm that no unrelated or generated runtime files are
    included.
-2. Run `npm run verify:stage8` and record the result in the release notes.
+2. Run `npm run verify:stage9` against the exact candidate commit and record the
+   result in the release notes. `npm run verify:stage8` remains available only
+   as a historical reproducibility baseline; it is not the current release-
+   readiness gate.
 3. Run a secret-pattern check and confirm that provider credentials remain
    backend-only.
 4. Recheck the simulation-only, fictional-data, minor-safety, and no-profit-
    promise boundaries.
 5. Publish release notes containing the change summary, validation, upgrade or
    compatibility notes, and known limitations.
+
+A release-candidate document or successful verification run is preparation and
+evidence only. It does not by itself create a Git tag or GitHub Release, prove
+external adoption, or indicate approval for Codex for Open Source.
 
 ## Codex-Assisted OSS Maintenance
 
@@ -55,6 +62,8 @@ The maintenance contract is:
 
 - A human maintainer chooses the task, reviews the resulting diff, and controls
   commits, merges, tags, releases, repository settings, and external messages.
+  The human maintainer remains accountable for every public claim and release
+  decision.
 - Codex-assisted changes must pass the same tests and compliance gates as human-
   authored changes.
 - Public records must not present Codex as an independent user, adopter, or
