@@ -4,6 +4,8 @@ import org.footballlab.analysis.domain.AnalysisGenerateRequest;
 import org.footballlab.analysis.domain.AnalysisReportResponse;
 import org.footballlab.analysis.service.AnalysisService;
 import org.footballlab.common.Result;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
@@ -20,6 +22,11 @@ public class AnalysisController {
     @PostMapping("/api/analysis/generate")
     public Result<AnalysisReportResponse> generateAnalysis(@RequestBody AnalysisGenerateRequest request) {
         return Result.success(analysisService.generateAnalysis(request));
+    }
+
+    @GetMapping("/api/analysis/reports/{reportId}")
+    public Result<AnalysisReportResponse> getReport(@PathVariable String reportId) {
+        return Result.success(analysisService.getReport(reportId));
     }
 }
 

@@ -66,6 +66,12 @@ public class AnalysisServiceImpl implements AnalysisService {
         return response;
     }
 
+    @Override
+    public AnalysisReportResponse getReport(String reportId) {
+        return analysisReportRepository.findAnyById(reportId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Analysis report not found."));
+    }
+
     private AnalysisEngine resolveAnalysisEngine(String engineMode) {
         AnalysisEngine analysisEngine = analysisEngines.get(engineMode);
         if (analysisEngine != null) {

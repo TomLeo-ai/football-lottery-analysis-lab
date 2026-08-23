@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -46,45 +47,58 @@ function spawnService(name, command, port) {
 }
 
 async function verifyApiFlow() {
-  const screenshot = await postJson('/api/screenshots/tasks', {
-    fileName: 'fictional-stage8-flow.png',
+  const workflow = await postJson('/api/ocr/workflows', {
+    sourceDeclaration: 'FICTIONAL_SAMPLE',
+    sourcePolicyVersion: 'SOURCE_POLICY_V2',
     contentType: 'image/png',
-    fileSize: 204800,
-    sampleLabel: 'DEMO DATA / FICTIONAL SAMPLE'
-  });
-  assert.equal(screenshot.data.status, 'WAITING_LOCAL_OCR');
-  assert.equal(screenshot.data.serverOcrEnabled, false);
+    byteSize: 204800,
+    width: 1200,
+    height: 800
+  }, idempotencyHeaders());
+  assert.equal(workflow.data.currentStage, 'WAITING_LOCAL_OCR');
+  assert.equal(workflow.data.version, 0);
 
-  const ocr = await postJson('/api/ocr/parse-local-result', {
-    screenshotTaskId: screenshot.data.taskId,
-    ocrProvider: 'BROWSER_LOCAL_MOCK',
-    rawText: 'DEMO DATA / FICTIONAL SAMPLE\nFictional Coastal League\nNorthport United vs Lakeside City',
-    fields: [
+  const ocr = await postJson(`/api/ocr/workflows/${workflow.data.workflowId}/ocr-candidates`, {
+    expectedVersion: workflow.data.version,
+    entryMode: 'OCR',
+    replaceDraft: false,
+    ocrEngine: 'BROWSER_LOCAL_MOCK',
+    ocrEngineVersion: 'stage8',
+    languages: ['eng'],
+    processedWidth: 1200,
+    processedHeight: 800,
+    candidateFields: [
       {
+        fieldId: randomUUID(),
+        scope: 'MATCH',
         fieldName: 'league',
-        fieldValue: 'Fictional Coastal League',
+        value: 'Fictional Coastal League',
         confidence: 0.96,
-        sourceRegion: 'x=12,y=20,w=180,h=32'
+        boundingBox: { x: 12, y: 20, width: 180, height: 32 }
       },
       {
+        fieldId: randomUUID(),
+        scope: 'MATCH',
         fieldName: 'homeTeam',
-        fieldValue: 'Northport United',
+        value: 'Northport United',
         confidence: 0.94,
-        sourceRegion: 'x=12,y=64,w=180,h=32'
+        boundingBox: { x: 12, y: 64, width: 180, height: 32 }
       },
       {
+        fieldId: randomUUID(),
+        scope: 'MATCH',
         fieldName: 'awayTeam',
-        fieldValue: 'Lakeside City',
+        value: 'Lakeside City',
         confidence: 0.93,
-        sourceRegion: 'x=220,y=64,w=160,h=32'
+        boundingBox: { x: 220, y: 64, width: 160, height: 32 }
       }
     ]
-  });
+  }, idempotencyHeaders());
   assert.equal(ocr.data.status, 'WAITING_USER_CONFIRMATION');
   assert.equal(ocr.data.analysisAllowed, false);
 
-  const snapshot = await postJson('/api/ocr/review/confirm', {
-    ocrTaskId: ocr.data.ocrTaskId,
+  const draft = await putJson(`/api/ocr/review-drafts/${ocr.data.ocrTaskId}`, {
+    expectedRevision: 0,
     riskPreference: 'BALANCED',
     budgetAmount: 20,
     currency: 'CNY',
@@ -107,9 +121,16 @@ async function verifyApiFlow() {
         odds: 2.05
       }
     ]
-  });
+  }, idempotencyHeaders());
+  assert.equal(draft.data.revision, 1);
+
+  const snapshot = await postJson(`/api/ocr/review-drafts/${ocr.data.ocrTaskId}/confirm`, {
+    expectedRevision: draft.data.revision
+  }, idempotencyHeaders());
   assert.equal(snapshot.data.sourceType, 'USER_SCREENSHOT_CONFIRMED');
   assert.equal(snapshot.data.analysisAllowed, true);
+  assert.equal(snapshot.data.workflowId, workflow.data.workflowId);
+  assert.equal(snapshot.data.schemaVersion, 'CONFIRMED_SNAPSHOT_V2');
 
   const analysis = await postJson('/api/analysis/generate', {
     snapshotId: snapshot.data.snapshotId,
@@ -156,17 +177,18 @@ async function verifyApiFlow() {
   assert.ok(pending.data.some((item) => item.planId === savedPlan.data.planId));
 
   const match = await postJson(`/api/simulated-plans/${savedPlan.data.planId}/match-result`);
-  assert.equal(match.data.matchStatus, 'MATCHED');
-  assert.equal(match.data.matchConfidence, 0.98);
+  assert.equal(match.data.matchStatus, 'NEEDS_REVIEW');
+  assert.equal(match.data.matchConfidence, 0);
+  assert.equal(match.data.reviewWarnings[0], 'RESULT_MATCHING_ERROR');
 
   const settle = await postJson(`/api/simulated-plans/${savedPlan.data.planId}/settle`);
-  assert.equal(settle.data.reviewStatus, 'MISS');
-  assert.equal(settle.data.failureReasons[0], 'DIRECTION_ERROR');
-  assert.equal(settle.data.strategyRevisionRules[0].ruleCode, 'REVIEW_DIRECTION_WEIGHT');
-  assert.equal(settle.data.resultSource.sourceName, 'Mock Public Result Provider');
+  assert.equal(settle.data.reviewStatus, 'NEEDS_REVIEW');
+  assert.equal(settle.data.failureReasons[0], 'RESULT_MATCHING_ERROR');
+  assert.equal(settle.data.strategyRevisionRules[0].ruleCode, 'REVIEW_RESULT_MATCHING');
+  assert.equal(settle.data.resultSource, null);
 
   const review = await getJson(`/api/simulated-plans/${savedPlan.data.planId}/review`);
-  assert.equal(review.data.reviewStatus, 'MISS');
+  assert.equal(review.data.reviewStatus, 'NEEDS_REVIEW');
 }
 
 async function verifyResponsiveUi() {
@@ -176,11 +198,11 @@ async function verifyResponsiveUi() {
   const routes = [
     ['/dashboard', '闭环流程仪表盘'],
     ['/official-source-hub', '官方外链入口'],
-    ['/screenshot-upload', '虚构截图上传与本地 OCR'],
-    ['/ocr-review', 'OCR 人工确认'],
+    ['/screenshot-upload', '截图本地 OCR'],
+    ['/ocr-review', '人工确认'],
     ['/match-workspace', '比赛工作台'],
-    ['/strategy-simulator', 'AI 分析 Mock/规则引擎'],
-    ['/saved-plans', '模拟方案生成与保存'],
+    ['/strategy-simulator', 'AI 分析'],
+    ['/saved-plans', '模拟方案'],
     ['/review-center', '自动复盘与策略修正规则'],
     ['/strategy-lab', '策略实验室'],
     ['/model-settings', '模型设置 / 策略默认值'],
@@ -233,8 +255,17 @@ async function assertInteractiveTargets(page, path, width) {
         const rect = item.getBoundingClientRect();
         return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
       })
-      .filter((item) => item.getBoundingClientRect().height < 44)
-      .map((item) => item.textContent?.trim() || item.getAttribute('aria-label') || item.tagName)
+      .map((item) => {
+        const usesLabelTarget = item instanceof HTMLInputElement
+          && (item.type === 'radio' || item.type === 'checkbox');
+        const touchTarget = usesLabelTarget ? item.closest('label') ?? item : item;
+        return {
+          height: touchTarget.getBoundingClientRect().height,
+          label: item.textContent?.trim() || item.getAttribute('aria-label') || item.tagName
+        };
+      })
+      .filter((item) => item.height < 44)
+      .map((item) => item.label)
   );
   assert.deepEqual(shortTargets, [], `${path} has touch targets below 44px at ${width}px`);
 }
@@ -265,11 +296,28 @@ async function getJson(path) {
   return parseJson(response, path);
 }
 
-async function postJson(path, body = {}) {
+function idempotencyHeaders() {
+  return { 'Idempotency-Key': randomUUID() };
+}
+
+async function postJson(path, body = {}, headers = {}) {
   const response = await fetch(`${apiBase}${path}`, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      ...headers
+    },
+    body: JSON.stringify(body)
+  });
+  return parseJson(response, path);
+}
+
+async function putJson(path, body = {}, headers = {}) {
+  const response = await fetch(`${apiBase}${path}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...headers
     },
     body: JSON.stringify(body)
   });
@@ -279,7 +327,7 @@ async function postJson(path, body = {}) {
 async function parseJson(response, path) {
   assert.equal(response.ok, true, `${path} returned HTTP ${response.status}`);
   const result = await response.json();
-  assert.equal(result.code, 200, `${path} returned API code ${result.code}`);
+  assert.equal(result.code, response.status, `${path} returned API code ${result.code}`);
   return result;
 }
 

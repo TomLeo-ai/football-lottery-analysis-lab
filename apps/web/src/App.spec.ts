@@ -1,4 +1,5 @@
 import { mount } from '@vue/test-utils';
+import { createPinia } from 'pinia';
 import { describe, expect, it } from 'vitest';
 
 import App from './App.vue';
@@ -6,6 +7,7 @@ import App from './App.vue';
 function mountAppAt(path: string) {
   return mount(App, {
     global: {
+      plugins: [createPinia()],
       mocks: {
         $route: { path }
       },
