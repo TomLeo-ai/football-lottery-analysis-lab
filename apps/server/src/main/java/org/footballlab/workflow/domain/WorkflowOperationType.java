@@ -7,5 +7,6 @@ public enum WorkflowOperationType {
     CONFIRM_SNAPSHOT,
     ABANDON_WORKFLOW,
     GENERATE_REPORT,
+    GENERATE_ANALYSIS,
     CREATE_PLAN
 }

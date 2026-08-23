@@ -12,6 +12,7 @@ import org.footballlab.analysis.domain.RiskWarningResponse;
 import org.footballlab.analysis.domain.SimulatedSelectionResponse;
 import org.footballlab.llm.domain.LlmChatRequest;
 import org.footballlab.llm.domain.LlmChatResponse;
+import org.footballlab.llm.domain.LlmInvocationAuditRecord;
 import org.footballlab.llm.domain.LlmProviderInvocationConfig;
 import org.footballlab.llm.domain.PredictionValidationResult;
 import org.footballlab.llm.service.LlmInvocationAuditService;
@@ -20,6 +21,7 @@ import org.footballlab.llm.service.LlmProviderRegistry;
 import org.footballlab.llm.service.OpenAiCompatibleLlmClient;
 import org.footballlab.llm.service.PromptContextBuilder;
 import org.footballlab.llm.service.PromptPackService;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -62,19 +64,20 @@ public class OpenAiCompatibleAnalysisEngine implements AnalysisEngine {
     public AnalysisEngineResult generate(AnalysisEngineContext context) {
         AuthoritativeAnalysisInput input = context.input();
         String promptVersion = context.engineConfiguration().promptVersion();
-        LlmProviderInvocationConfig provider = providerRegistry.resolveInvocationConfig(
-                context.engineConfiguration().providerKey(),
-                context.engineConfiguration().modelId());
-        String systemPrompt = promptPackService.loadPrompt(SAFETY_PROMPT_VERSION)
-                + "\n\n"
-                + promptPackService.loadPrompt(promptVersion);
-        String userPrompt = "promptVersion=%s\n%s".formatted(
-                promptVersion,
-                promptContextBuilder.buildPredictionContext(input, context.strategyParameters()));
-        String inputPayload = systemPrompt + "\n\n" + userPrompt;
-
-            LlmChatResponse chatResponse = null;
+        LlmProviderInvocationConfig provider = null;
+        LlmChatResponse chatResponse = null;
+        String inputPayload = "prediction-input-unavailable";
         try {
+            String systemPrompt = promptPackService.loadPrompt(SAFETY_PROMPT_VERSION)
+                    + "\n\n"
+                    + promptPackService.loadPrompt(promptVersion);
+            String userPrompt = "promptVersion=%s\n%s".formatted(
+                    promptVersion,
+                    promptContextBuilder.buildPredictionContext(input, context.strategyParameters()));
+            inputPayload = systemPrompt + "\n\n" + userPrompt;
+            provider = providerRegistry.resolveInvocationConfig(
+                    context.engineConfiguration().providerKey(),
+                    context.engineConfiguration().modelId());
             chatResponse = llmClient.createChatCompletion(new LlmChatRequest(
                     provider.providerKey(),
                     provider.baseUrl(),
@@ -87,7 +90,7 @@ public class OpenAiCompatibleAnalysisEngine implements AnalysisEngine {
                     context.strategyParameters(),
                     input.markets());
             JsonNode llmOutput = validationResult.output();
-            String auditId = auditService.recordSuccess(
+            LlmInvocationAuditRecord audit = auditService.buildSuccessRecord(
                     LlmInvocationAuditService.BUSINESS_ANALYSIS_PREDICTION,
                     context.reportId(),
                     provider,
@@ -112,15 +115,29 @@ public class OpenAiCompatibleAnalysisEngine implements AnalysisEngine {
                     provider.modelId(),
                     promptVersion,
                     validationResult.safetyStatus(),
-                    auditId,
-                    llmOutput));
+                    audit.auditId(),
+                    llmOutput), audit);
         } catch (ResponseStatusException exception) {
-            recordFailureAudit(context, provider, promptVersion, inputPayload, chatResponse, exception);
-            throw exception;
+            LlmProviderInvocationConfig auditProvider = provider == null
+                    ? new LlmProviderInvocationConfig(
+                            context.engineConfiguration().providerKey(),
+                            null,
+                            context.engineConfiguration().modelId(),
+                            null,
+                            null)
+                    : provider;
+            LlmInvocationAuditRecord failureAudit = buildFailureAudit(
+                    context, auditProvider, promptVersion, inputPayload, chatResponse, exception);
+            HttpStatus status = HttpStatus.resolve(exception.getStatusCode().value());
+            throw new AnalysisEngineInvocationException(
+                    status == null ? HttpStatus.INTERNAL_SERVER_ERROR : status,
+                    resolveErrorCode(exception),
+                    "External analysis could not be completed safely.",
+                    failureAudit);
         }
     }
 
-    private void recordFailureAudit(
+    private LlmInvocationAuditRecord buildFailureAudit(
             AnalysisEngineContext context,
             LlmProviderInvocationConfig provider,
             String promptVersion,
@@ -130,7 +147,7 @@ public class OpenAiCompatibleAnalysisEngine implements AnalysisEngine {
         String safetyStatus = chatResponse == null
                 ? LlmInvocationAuditService.SAFETY_ERROR
                 : LlmInvocationAuditService.SAFETY_BLOCKED;
-        auditService.recordFailure(
+        return auditService.buildFailureRecord(
                 LlmInvocationAuditService.BUSINESS_ANALYSIS_PREDICTION,
                 context.reportId(),
                 provider,
@@ -146,7 +163,48 @@ public class OpenAiCompatibleAnalysisEngine implements AnalysisEngine {
     }
 
     private String resolveErrorCode(ResponseStatusException exception) {
-        return exception.getReason() == null ? exception.getStatusCode().toString() : exception.getReason();
+        String reason = exception.getReason();
+        if (reason == null || reason.isBlank()) {
+            return "LLM_INVOCATION_FAILED";
+        }
+        if (reason.startsWith("UNSUPPORTED_PLAY_TYPE:")
+                || reason.startsWith("UNSUPPORTED_SELECTION:")
+                || reason.startsWith("MISSING_FIELD:")
+                || reason.startsWith("REVIEW_SETTLEMENT_MUTATION_FIELD:")
+                || "INVALID_JSON_OBJECT".equals(reason)
+                || "INVALID_JSON".equals(reason)
+                || "MISSING_COMPLIANCE_NOTICE".equals(reason)
+                || "INVALID_TICKET_GROUPS".equals(reason)
+                || "INVALID_TICKET_COST".equals(reason)
+                || "MAX_PARLAY_LEGS_EXCEEDED".equals(reason)
+                || "INVALID_SELECTIONS".equals(reason)
+                || "EXCLUDED_PLAY_TYPE".equals(reason)
+                || "INVALID_SELECTION_MARKET".equals(reason)
+                || "BUDGET_EXCEEDED".equals(reason)
+                || "BLOCKED_TERM".equals(reason)) {
+            return "LLM_OUTPUT_VALIDATION_FAILED";
+        }
+        if (reason.startsWith("LLM_HTTP_STATUS:")) {
+            return "LLM_PROVIDER_HTTP_ERROR";
+        }
+        if (reason.startsWith("Unknown model provider:")) {
+            return "MODEL_PROVIDER_UNKNOWN";
+        }
+        if (reason.startsWith("Prompt not found:") || reason.startsWith("Prompt load failed:")) {
+            return "PROMPT_CONFIGURATION_ERROR";
+        }
+        return switch (reason) {
+            case "MODEL_PROVIDER_REQUIRED",
+                    "MISSING_PROVIDER_CREDENTIAL",
+                    "LLM_HTTP_TIMEOUT",
+                    "LLM_HTTP_IO_ERROR",
+                    "LLM_HTTP_INTERRUPTED",
+                    "LLM_REQUEST_SERIALIZATION_ERROR",
+                    "LLM_EMPTY_CONTENT",
+                    "LLM_RESPONSE_PARSE_ERROR" -> reason;
+            case "Prompt context build failed" -> "PROMPT_CONTEXT_BUILD_FAILED";
+            default -> "LLM_INVOCATION_FAILED";
+        };
     }
 
     private List<ProbabilityInsightResponse> buildProbabilityAnalysis(

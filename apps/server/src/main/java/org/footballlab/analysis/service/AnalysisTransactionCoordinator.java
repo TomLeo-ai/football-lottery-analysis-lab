@@ -2,6 +2,7 @@ package org.footballlab.analysis.service;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -15,6 +16,8 @@ import org.footballlab.analysis.domain.ResolvedAnalysisEngineConfiguration;
 import org.footballlab.analysis.persistence.AnalysisReportV2Record;
 import org.footballlab.analysis.repository.AnalysisReportRepository;
 import org.footballlab.common.error.ApiException;
+import org.footballlab.llm.domain.LlmInvocationAuditRecord;
+import org.footballlab.llm.repository.LlmInvocationAuditRepository;
 import org.footballlab.ocr.domain.UserConfirmedSnapshotResponse;
 import org.footballlab.ocr.repository.OcrWorkflowRepository;
 import org.footballlab.strategy.domain.ResolvedStrategyParameters;
@@ -39,6 +42,8 @@ import org.springframework.web.server.ResponseStatusException;
 public class AnalysisTransactionCoordinator {
 
     private static final ZoneId DEFAULT_ZONE = ZoneId.of("Asia/Shanghai");
+    private static final DateTimeFormatter STABLE_OFFSET_FORMAT =
+            DateTimeFormatter.ofPattern("uuuu-MM-dd'T'HH:mm:ss.SSSSSSSSSXXX");
     private static final String CONFIRMED_SNAPSHOT_V2 = "CONFIRMED_SNAPSHOT_V2";
     private static final String SERVER_CONFIRMED_V2 = "SERVER_CONFIRMED_V2";
     private static final String USER_SCREENSHOT_CONFIRMED = "USER_SCREENSHOT_CONFIRMED";
@@ -52,6 +57,7 @@ public class AnalysisTransactionCoordinator {
     private final AnalysisReportRepository analysisReportRepository;
     private final AnalysisOptionsResolver analysisOptionsResolver;
     private final MockRuleAnalysisEngine ruleEngine;
+    private final LlmInvocationAuditRepository auditRepository;
 
     public AnalysisTransactionCoordinator(
             OcrWorkflowRepository ocrWorkflowRepository,
@@ -59,13 +65,15 @@ public class AnalysisTransactionCoordinator {
             WorkflowOperationService operationService,
             AnalysisReportRepository analysisReportRepository,
             AnalysisOptionsResolver analysisOptionsResolver,
-            MockRuleAnalysisEngine ruleEngine) {
+            MockRuleAnalysisEngine ruleEngine,
+            LlmInvocationAuditRepository auditRepository) {
         this.ocrWorkflowRepository = ocrWorkflowRepository;
         this.workflowRepository = workflowRepository;
         this.operationService = operationService;
         this.analysisReportRepository = analysisReportRepository;
         this.analysisOptionsResolver = analysisOptionsResolver;
         this.ruleEngine = ruleEngine;
+        this.auditRepository = auditRepository;
     }
 
     @Transactional
@@ -101,7 +109,8 @@ public class AnalysisTransactionCoordinator {
                     workflowIdHint,
                     engineConfiguration,
                     hashedStrategyParameters,
-                    hashedDefaultsVersion);
+                    hashedDefaultsVersion,
+                    MockRuleAnalysisEngine.ENGINE_MODE);
         } catch (ApiException exception) {
             completeDeterministicFailure(idempotencyKey, exception, now);
             return RuleGenerationOutcome.failure(exception);
@@ -150,6 +159,164 @@ public class AnalysisTransactionCoordinator {
             throw new IllegalStateException("Analysis operation success update failed.");
         }
         return RuleGenerationOutcome.success(HttpStatus.CREATED, report.toResponse());
+    }
+
+    @Transactional
+    public ExternalClaimOutcome claimExternalAnalysis(
+            String idempotencyKey,
+            AnalysisGenerateRequest request,
+            String workflowIdHint,
+            String requestHash,
+            ResolvedAnalysisEngineConfiguration engineConfiguration,
+            StrategyParameterRequest hashedStrategyParameters,
+            String hashedDefaultsVersion) {
+        String now = now();
+        Reservation reservation = operationService.reserve(
+                idempotencyKey,
+                workflowIdHint,
+                WorkflowOperationType.GENERATE_ANALYSIS,
+                requestHash,
+                now);
+        if (reservation.status() == ReservationStatus.REPLAY) {
+            RuleGenerationOutcome replayed = replay(reservation.operation());
+            return replayed.failure() == null
+                    ? ExternalClaimOutcome.replay(replayed.httpStatus(), replayed.report())
+                    : ExternalClaimOutcome.failure(replayed.failure());
+        }
+        if (reservation.status() == ReservationStatus.IN_PROGRESS) {
+            return ExternalClaimOutcome.failure(operationInProgress());
+        }
+
+        PreparedRuleAnalysis authority;
+        try {
+            authority = prepareAuthoritativeAnalysis(
+                    request,
+                    workflowIdHint,
+                    engineConfiguration,
+                    hashedStrategyParameters,
+                    hashedDefaultsVersion,
+                    OpenAiCompatibleAnalysisEngine.ENGINE_MODE);
+        } catch (ApiException exception) {
+            completeDeterministicFailure(idempotencyKey, exception, now);
+            return ExternalClaimOutcome.failure(exception);
+        }
+
+        boolean claimed = workflowRepository.claimActiveOperation(
+                authority.workflow().workflowId(),
+                authority.workflow().version(),
+                WorkflowStage.CONFIRMED,
+                WorkflowOperationType.GENERATE_ANALYSIS,
+                idempotencyKey,
+                now);
+        if (!claimed) {
+            ApiException failure = operationInProgress();
+            completeDeterministicFailure(idempotencyKey, failure, now);
+            return ExternalClaimOutcome.failure(failure);
+        }
+
+        return ExternalClaimOutcome.prepared(new PreparedAnalysisOperation(
+                idempotencyKey,
+                authority.workflow().workflowId(),
+                authority.workflow().version() + 1,
+                authority.snapshot().confirmedRevision(),
+                "analysis-" + UUID.randomUUID(),
+                now,
+                authority.input(),
+                engineConfiguration,
+                authority.strategyParameters(),
+                authority.defaultsVersion(),
+                requestHash));
+    }
+
+    @Transactional
+    public AnalysisReportResponse completeExternalAnalysis(
+            PreparedAnalysisOperation prepared,
+            AnalysisEngineResult engineResult) {
+        LlmInvocationAuditRecord audit = Objects.requireNonNull(
+                engineResult.successAudit(),
+                "External analysis success audit is required.");
+        if (!prepared.reportId().equals(engineResult.report().reportId())
+                || !prepared.reportId().equals(audit.businessId())
+                || !audit.auditId().equals(engineResult.report().llmAuditId())) {
+            throw new IllegalStateException("External analysis result does not match its prepared operation.");
+        }
+
+        auditRepository.save(audit);
+        AnalysisReportV2Record report = AnalysisReportV2Record.fromResponse(
+                engineResult.report(),
+                prepared.workflowId(),
+                prepared.snapshotRevision(),
+                AnalysisReportV2Record.AUTHORITY_TYPE,
+                prepared.defaultsVersion());
+        analysisReportRepository.insertV2(report);
+        String now = now();
+        boolean transitioned = workflowRepository.transitionClaimed(
+                prepared.workflowId(),
+                prepared.claimedWorkflowVersion(),
+                WorkflowStage.CONFIRMED,
+                WorkflowStage.ANALYSIS_GENERATED,
+                WorkflowOperationType.GENERATE_ANALYSIS,
+                prepared.idempotencyKey(),
+                report.reportId(),
+                now);
+        if (!transitioned) {
+            throw new IllegalStateException("Claimed external analysis workflow transition failed.");
+        }
+        boolean completed = operationService.completeSuccess(
+                prepared.idempotencyKey(),
+                "ANALYSIS_REPORT",
+                report.reportId(),
+                HttpStatus.CREATED.value(),
+                now);
+        if (!completed) {
+            throw new IllegalStateException("External analysis operation success update failed.");
+        }
+        return report.toResponse();
+    }
+
+    @Transactional
+    public void failExternalAnalysis(
+            PreparedAnalysisOperation prepared,
+            AnalysisEngineInvocationException failure) {
+        LlmInvocationAuditRecord audit = failure.failureAudit();
+        if (!prepared.reportId().equals(audit.businessId())) {
+            throw new IllegalStateException("External analysis failure audit does not match its prepared operation.");
+        }
+        auditRepository.save(audit);
+        String now = now();
+        boolean claimCleared = workflowRepository.clearActiveOperation(
+                prepared.workflowId(),
+                WorkflowOperationType.GENERATE_ANALYSIS,
+                prepared.idempotencyKey(),
+                now);
+        if (!claimCleared) {
+            throw new IllegalStateException("External analysis failure claim could not be cleared.");
+        }
+        boolean completed = operationService.completeFailure(
+                prepared.idempotencyKey(),
+                failure.errorCode(),
+                failure.status().value(),
+                now);
+        if (!completed) {
+            throw new IllegalStateException("External analysis failure operation update failed.");
+        }
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void interruptExternalAnalysisRequiresNew(PreparedAnalysisOperation prepared) {
+        String now = now();
+        boolean interrupted = operationService.interruptInProgress(
+                prepared.idempotencyKey(),
+                WorkflowOperationType.GENERATE_ANALYSIS,
+                HttpStatus.CONFLICT.value(),
+                now);
+        if (interrupted) {
+            workflowRepository.clearActiveOperation(
+                    prepared.workflowId(),
+                    WorkflowOperationType.GENERATE_ANALYSIS,
+                    prepared.idempotencyKey(),
+                    now);
+        }
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -204,9 +371,10 @@ public class AnalysisTransactionCoordinator {
             String workflowIdHint,
             ResolvedAnalysisEngineConfiguration engineConfiguration,
             StrategyParameterRequest hashedStrategyParameters,
-            String hashedDefaultsVersion) {
-        if (!MockRuleAnalysisEngine.ENGINE_MODE.equals(engineConfiguration.engineMode())) {
-            throw badRequest("UNSUPPORTED_ANALYSIS_ENGINE", "Only MOCK_RULE_ENGINE is available in this transaction.");
+            String hashedDefaultsVersion,
+            String expectedEngineMode) {
+        if (!expectedEngineMode.equals(engineConfiguration.engineMode())) {
+            throw badRequest("UNSUPPORTED_ANALYSIS_ENGINE", "Analysis engine mode does not match this transaction.");
         }
         UserConfirmedSnapshotResponse snapshot = ocrWorkflowRepository.findConfirmedSnapshot(request.snapshotId())
                 .orElseThrow(() -> new ApiException(
@@ -393,8 +561,15 @@ public class AnalysisTransactionCoordinator {
         return new ApiException(HttpStatus.BAD_REQUEST, code, message);
     }
 
+    private ApiException operationInProgress() {
+        return new ApiException(
+                HttpStatus.CONFLICT,
+                "OPERATION_IN_PROGRESS",
+                "Another analysis operation is already in progress for this workflow.");
+    }
+
     private String now() {
-        return OffsetDateTime.now(DEFAULT_ZONE).toString();
+        return STABLE_OFFSET_FORMAT.format(OffsetDateTime.now(DEFAULT_ZONE));
     }
 
     private record PreparedRuleAnalysis(
@@ -416,6 +591,25 @@ public class AnalysisTransactionCoordinator {
 
         static RuleGenerationOutcome failure(ApiException failure) {
             return new RuleGenerationOutcome(failure.status(), null, failure);
+        }
+    }
+
+    public record ExternalClaimOutcome(
+            HttpStatus httpStatus,
+            AnalysisReportResponse report,
+            PreparedAnalysisOperation prepared,
+            ApiException failure) {
+
+        static ExternalClaimOutcome replay(HttpStatus status, AnalysisReportResponse report) {
+            return new ExternalClaimOutcome(status, report, null, null);
+        }
+
+        static ExternalClaimOutcome prepared(PreparedAnalysisOperation prepared) {
+            return new ExternalClaimOutcome(null, null, prepared, null);
+        }
+
+        static ExternalClaimOutcome failure(ApiException failure) {
+            return new ExternalClaimOutcome(failure.status(), null, null, failure);
         }
     }
 }

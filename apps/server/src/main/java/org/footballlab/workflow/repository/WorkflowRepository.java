@@ -31,6 +31,16 @@ public interface WorkflowRepository {
             String operationKey,
             String updatedAt);
 
+    boolean transitionClaimed(
+            String workflowId,
+            long expectedVersion,
+            WorkflowStage expectedStage,
+            WorkflowStage nextStage,
+            WorkflowOperationType operationType,
+            String operationKey,
+            String currentReportId,
+            String updatedAt);
+
     boolean clearActiveOperation(
             String workflowId,
             WorkflowOperationType operationType,

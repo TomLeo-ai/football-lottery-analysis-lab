@@ -20,10 +20,12 @@ import org.footballlab.analysis.domain.AnalysisMatchRequest;
 import org.footballlab.analysis.domain.AnalysisReportResponse;
 import org.footballlab.analysis.domain.ResolvedAnalysisEngineConfiguration;
 import org.footballlab.analysis.service.AnalysisEngineContext;
+import org.footballlab.analysis.service.AnalysisEngineResult;
 import org.footballlab.analysis.service.AuthoritativeAnalysisInput;
 import org.footballlab.analysis.service.OpenAiCompatibleAnalysisEngine;
 import org.footballlab.llm.domain.LlmHttpRequest;
 import org.footballlab.llm.domain.LlmHttpResponse;
+import org.footballlab.llm.domain.LlmInvocationAuditRecord;
 import org.footballlab.llm.service.LlmHttpTransport;
 import org.footballlab.strategy.domain.StrategyParameterRequest;
 import org.junit.jupiter.api.Test;
@@ -60,39 +62,42 @@ class LlmInvocationAuditTest {
     private LlmHttpTransport llmHttpTransport;
 
     @Test
-    void shouldPersistPredictionAuditWithHashesAndReturnAuditId() throws Exception {
+    void shouldBuildPredictionAuditWithoutPersistingIt() throws Exception {
         when(llmHttpTransport.exchange(any()))
                 .thenReturn(new LlmHttpResponse(200, llmResponseBody(validPredictionOutput(), 101, 202, 303), 88));
         AnalysisEngineContext context = predictionContext("openai", "gpt-4o-mini");
 
-        AnalysisReportResponse response = openAiCompatibleAnalysisEngine.generate(context).report();
+        AnalysisEngineResult result = openAiCompatibleAnalysisEngine.generate(context);
+        AnalysisReportResponse response = result.report();
+        LlmInvocationAuditRecord audit = result.successAudit();
         String auditId = response.llmAuditId();
         assertThat(auditId).isNotBlank();
-
-        Map<String, Object> row = jdbcTemplate.queryForMap(
-                "select * from llm_invocation_audit where audit_id = ?",
-                auditId);
-        assertThat(row.get("business_type")).isEqualTo("ANALYSIS_PREDICTION");
-        assertThat(row.get("business_id")).isEqualTo(response.reportId());
-        assertThat(row.get("provider_key")).isEqualTo("openai");
-        assertThat(row.get("model_id")).isEqualTo("gpt-4o-mini");
-        assertThat(row.get("prompt_version")).isEqualTo("danche-prediction-v1");
-        assertThat(row.get("input_hash")).asString().hasSize(64);
-        assertThat(row.get("output_hash")).asString().hasSize(64);
-        assertThat(((Number) row.get("prompt_tokens")).intValue()).isEqualTo(101);
-        assertThat(((Number) row.get("completion_tokens")).intValue()).isEqualTo(202);
-        assertThat(((Number) row.get("total_tokens")).intValue()).isEqualTo(303);
-        assertThat(((Number) row.get("latency_ms")).longValue()).isEqualTo(88);
-        assertThat(row.get("safety_status")).isEqualTo("PASSED");
-        assertThat(row.get("error_code")).isNull();
-        assertAuditRowDoesNotContainRawSensitiveContent(row);
+        assertThat(audit.auditId()).isEqualTo(auditId);
+        assertThat(audit.businessType()).isEqualTo("ANALYSIS_PREDICTION");
+        assertThat(audit.businessId()).isEqualTo(response.reportId());
+        assertThat(audit.providerKey()).isEqualTo("openai");
+        assertThat(audit.modelId()).isEqualTo("gpt-4o-mini");
+        assertThat(audit.promptVersion()).isEqualTo("danche-prediction-v1");
+        assertThat(audit.inputHash()).hasSize(64);
+        assertThat(audit.outputHash()).hasSize(64);
+        assertThat(audit.promptTokens()).isEqualTo(101);
+        assertThat(audit.completionTokens()).isEqualTo(202);
+        assertThat(audit.totalTokens()).isEqualTo(303);
+        assertThat(audit.latencyMs()).isEqualTo(88);
+        assertThat(audit.safetyStatus()).isEqualTo("PASSED");
+        assertThat(audit.errorCode()).isNull();
+        assertThat(audit.toString()).doesNotContain("unit-test-secret").doesNotContain("ticketGroups");
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from llm_invocation_audit where audit_id = ?",
+                Integer.class,
+                auditId)).isZero();
         assertPredictionTransport(
                 "https://api.openai.com/v1/chat/completions",
                 "gpt-4o-mini");
     }
 
     @Test
-    void shouldPersistDeepSeekPredictionAuditWhenOutputIsMarkdownWrappedJson() throws Exception {
+    void shouldBuildDeepSeekPredictionAuditForMarkdownWrappedJsonWithoutSaving() throws Exception {
         when(llmHttpTransport.exchange(any()))
                 .thenReturn(new LlmHttpResponse(
                         200,
@@ -100,7 +105,9 @@ class LlmInvocationAuditTest {
                         91));
         AnalysisEngineContext context = predictionContext("deepseek", "deepseek-v4-pro");
 
-        AnalysisReportResponse response = openAiCompatibleAnalysisEngine.generate(context).report();
+        AnalysisEngineResult result = openAiCompatibleAnalysisEngine.generate(context);
+        AnalysisReportResponse response = result.report();
+        LlmInvocationAuditRecord audit = result.successAudit();
         String auditId = response.llmAuditId();
         assertThat(auditId).isNotBlank();
         assertThat(response.providerKey()).isEqualTo("deepseek");
@@ -108,23 +115,24 @@ class LlmInvocationAuditTest {
         assertThat(response.promptVersion()).isEqualTo("danche-prediction-v1");
         assertThat(response.safetyStatus()).isEqualTo("PASSED");
 
-        Map<String, Object> row = jdbcTemplate.queryForMap(
-                "select * from llm_invocation_audit where audit_id = ?",
-                auditId);
-        assertThat(row.get("business_type")).isEqualTo("ANALYSIS_PREDICTION");
-        assertThat(row.get("business_id")).isEqualTo(response.reportId());
-        assertThat(row.get("provider_key")).isEqualTo("deepseek");
-        assertThat(row.get("model_id")).isEqualTo("deepseek-v4-pro");
-        assertThat(row.get("prompt_version")).isEqualTo("danche-prediction-v1");
-        assertThat(row.get("input_hash")).asString().hasSize(64);
-        assertThat(row.get("output_hash")).asString().hasSize(64);
-        assertThat(((Number) row.get("prompt_tokens")).intValue()).isEqualTo(111);
-        assertThat(((Number) row.get("completion_tokens")).intValue()).isEqualTo(222);
-        assertThat(((Number) row.get("total_tokens")).intValue()).isEqualTo(333);
-        assertThat(((Number) row.get("latency_ms")).longValue()).isEqualTo(91);
-        assertThat(row.get("safety_status")).isEqualTo("PASSED");
-        assertThat(row.get("error_code")).isNull();
-        assertAuditRowDoesNotContainRawSensitiveContent(row);
+        assertThat(audit.auditId()).isEqualTo(auditId);
+        assertThat(audit.businessType()).isEqualTo("ANALYSIS_PREDICTION");
+        assertThat(audit.businessId()).isEqualTo(response.reportId());
+        assertThat(audit.providerKey()).isEqualTo("deepseek");
+        assertThat(audit.modelId()).isEqualTo("deepseek-v4-pro");
+        assertThat(audit.promptVersion()).isEqualTo("danche-prediction-v1");
+        assertThat(audit.inputHash()).hasSize(64);
+        assertThat(audit.outputHash()).hasSize(64);
+        assertThat(audit.promptTokens()).isEqualTo(111);
+        assertThat(audit.completionTokens()).isEqualTo(222);
+        assertThat(audit.totalTokens()).isEqualTo(333);
+        assertThat(audit.latencyMs()).isEqualTo(91);
+        assertThat(audit.safetyStatus()).isEqualTo("PASSED");
+        assertThat(audit.errorCode()).isNull();
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from llm_invocation_audit where audit_id = ?",
+                Integer.class,
+                auditId)).isZero();
         assertPredictionTransport(
                 "https://api.deepseek.com/chat/completions",
                 "deepseek-v4-pro");
