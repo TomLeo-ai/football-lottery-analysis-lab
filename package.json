@@ -20,6 +20,7 @@
     "check:ocr-assets": "node scripts/ocr-assets-check.mjs",
     "test:deepseek-smoke": "node scripts/deepseek-integration-smoke.spec.mjs",
     "test:community-templates": "node --test scripts/community-templates-check.spec.mjs",
+    "test:compliance-scan": "node --test scripts/compliance-scan.spec.mjs",
     "test:ocr-assets": "node --test scripts/ocr-assets-check.spec.mjs",
     "test:ocr-core": "npm run test -w packages/ocr-core",
     "test:ocr-fixtures": "node --test scripts/fictional-ocr-sample.spec.mjs",
@@ -40,7 +41,8 @@
     "verify:stage5": "npm run compliance:scan && npm run lint:web && npm run test:web && npm run build:web && npm run test:server",
     "verify:stage6": "npm run compliance:scan && npm run lint:web && npm run test:web && npm run build:web && npm run test:server",
     "verify:stage7": "npm run compliance:scan && npm run lint:web && npm run test:web && npm run build:web && npm run test:server",
-    "verify:stage8": "npm run verify:community-templates && npm run compliance:scan && npm run lint:web && npm run test:web && npm run build:web && npm run verify:server && npm run test:stage8-config && npm run smoke:stage8"
+    "verify:stage8": "npm run verify:community-templates && npm run compliance:scan && npm run lint:web && npm run test:web && npm run build:web && npm run verify:server && npm run test:stage8-config && npm run smoke:stage8",
+    "verify:stage9": "npm run verify:community-templates && npm run test:compliance-scan && npm run compliance:scan && npm run test:ocr-core && npm run test:ocr-fixtures && npm run sync:ocr-assets && npm run check:ocr-assets && npm run test:ocr-assets && npm run test:isolated-runtime && npm run test:stage9-web-server && npm run test:stage9-smoke && npm run lint:web && npm run test:web && npm run build:web && npm run verify:server && npm run test:stage8-config && npm run test:stage9-config && npm run smoke:stage8 && npm run smoke:stage9"
   },
   "workspaces": [
     "apps/*",
