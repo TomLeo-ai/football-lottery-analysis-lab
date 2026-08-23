@@ -33,6 +33,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 @SpringBootTest(properties = {
+        "spring.datasource.url=jdbc:h2:mem:review_workflow_controller_test;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1",
         "OPENAI_API_KEY=unit-test-secret",
         "DEEPSEEK_API_KEY=unit-test-secret"
 })
