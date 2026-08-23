@@ -5,10 +5,15 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { strict as assert } from 'node:assert';
 import { chromium } from '@playwright/test';
+import {
+  createStage8DataSourceUrl,
+  createStage8SpawnOptions
+} from './stage8-runtime.mjs';
 
 const rootDir = fileURLToPath(new URL('..', import.meta.url));
 const apiBase = process.env.STAGE8_API_BASE ?? 'http://127.0.0.1:8080';
 const webBase = process.env.STAGE8_WEB_BASE ?? 'http://127.0.0.1:5173';
+const stage8DataSourceUrl = createStage8DataSourceUrl();
 const spawned = [];
 
 async function main() {
@@ -34,12 +39,11 @@ async function ensureServices() {
 }
 
 function spawnService(name, command, port) {
-  const child = spawn(command, {
-    cwd: rootDir,
-    detached: process.platform !== 'win32',
-    shell: true,
-    stdio: ['ignore', 'pipe', 'pipe']
-  });
+  const child = spawn(command, createStage8SpawnOptions({
+    name,
+    rootDir,
+    dataSourceUrl: stage8DataSourceUrl
+  }));
 
   child.stdout.on('data', (chunk) => process.stdout.write(`[${name}] ${chunk}`));
   child.stderr.on('data', (chunk) => process.stderr.write(`[${name}] ${chunk}`));
@@ -141,23 +145,14 @@ async function verifyApiFlow() {
   assert.equal(analysis.data.inputSourceType, 'USER_SCREENSHOT_CONFIRMED');
 
   const generatedPlan = await postJson('/api/strategies/simulate', {
-    reportId: analysis.data.reportId,
-    snapshotId: analysis.data.snapshotId,
-    inputSourceType: analysis.data.inputSourceType,
-    engineType: analysis.data.engineType,
-    reportStatus: analysis.data.reportStatus,
-    currency: snapshot.data.currency,
-    budgetAmount: snapshot.data.budgetAmount,
-    probabilityAnalysis: analysis.data.probabilityAnalysis,
-    riskWarnings: analysis.data.riskWarnings,
-    simulatedSelections: analysis.data.simulatedSelections
-  });
+    reportId: analysis.data.reportId
+  }, idempotencyHeaders());
   assert.equal(generatedPlan.data.planStatus, 'GENERATED');
 
   const savedPlan = await postJson('/api/simulated-plans', {
     generatedPlanId: generatedPlan.data.planId,
     operatorNote: 'Stage 8 smoke validation plan.'
-  });
+  }, idempotencyHeaders());
   assert.equal(savedPlan.data.planStatus, 'PENDING_RESULT');
 
   const sync = await postJson('/api/result-providers/sync', {

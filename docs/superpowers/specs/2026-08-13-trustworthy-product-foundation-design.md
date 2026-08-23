@@ -558,7 +558,7 @@ v2 记录以结构化状态列、外键和 version 列作为状态机权威；`p
 
 ### 10.3 浏览器恢复
 
-- 浏览器只在 `sessionStorage` 保存当前 `workflowId`，以及创建响应尚未成功接收时的 `pendingCreate`；不保存图片、raw OCR、比赛、市场或 API Key。`pendingCreate` 只含 idempotency key 与规范化 create metadata：来源声明/政策版本、content type、byte size、width、height，不含文件名或图片内容。
+- 浏览器只在 `sessionStorage` 保存当前 `workflowId`、创建响应尚未成功接收时的 `pendingCreate`，以及短期、workflow-scoped 的非敏感 `pendingWrite`。`pendingWrite` 只含 operation type、workflow ID、idempotency key、规范化最小请求、`SAME_KEY_REQUIRED|NEW_KEY_REQUIRED` recovery state 与稳定 error code；规范化请求只允许 snapshot/report/plan ID、显式引擎元数据、12 项非权威 analysis options 和保存备注。`pendingCreate` 只含 idempotency key 与规范化 create metadata：来源声明/政策版本、content type、byte size、width、height。两者都不得保存比赛、市场、图片/文件名、raw OCR、API Key 或客户端重建的权威正文。
 - 应用启动时调用 `GET /api/ocr/workflows/{workflowId}`。
 - 返回 workflow aggregate 及当前 OCR draft、确认快照、报告和方案的可用摘要。
 - Pinia 根据服务端响应一次性 hydrate，不能把旧内存值覆盖服务端状态。
@@ -862,7 +862,7 @@ create/parse/confirm/analysis/simulate 首次成功创建资源返回 201；draf
 ### 15.2 存储边界
 
 - 图片和 raw OCR 不进入 H2、MySQL 示例、日志、审计表、浏览器 LocalStorage 或仓库；
-- `sessionStorage` 只存 workflow ID 和短期 `pendingCreate` 的非敏感 create metadata/idempotency key；
+- `sessionStorage` 只存 workflow ID、短期 `pendingCreate` 的非敏感 create metadata/idempotency key，以及 workflow-scoped 的短期 `pendingWrite` 非敏感最小请求与恢复元数据；仍禁止比赛、市场、图片/文件名、raw OCR、API Key 和任何客户端重建的权威正文；
 - 已确认结构化字段按现有本地数据库策略持久化；
 - OCR 候选和草稿被视为可能敏感，不写日志。
 - 公共 OCR 模型可按带版本路径缓存在 IndexedDB；任何用户派生数据不得进入浏览器持久缓存。
@@ -968,7 +968,7 @@ Canvas/Tesseract 在 Vitest 中使用 Adapter fake；真实 OCR 留给浏览器�
 
 浏览器网络断言必须检查全部写请求的 header/body：不得出现 multipart 图片、`data:image`、PNG/JPEG/WebP Base64 特征、`rawText` 或黄金图片原始文件名。数据库断言必须证明新 `ocr_task.raw_text IS NULL`，相关 `payload_json` 不含黄金图片全文、文件名或图片编码。测试只对稳定双语 token 和结构化映射做断言，不锁完整 OCR 文本或精确 confidence。
 
-隐私黄金图另包含一个只会出现在完整 raw OCR、不会被候选映射的唯一 sentinel。测试结束后必须扫描：全部请求 URL/query/header/body、浏览器 console、后端 stdout/stderr 与日志文件、H2 所有相关表和 audit、Playwright trace/video/screenshot/失败附件、LocalStorage、Cache Storage 以及 IndexedDB 的 database/store/key/value。sentinel 与原始文件名在上述位置必须均为零命中；IndexedDB 只允许 manifest 中已知版本的公共 traineddata cache，sessionStorage 只允许 workflow ID 与短期 `pendingCreate` 非敏感 metadata。敏感流程默认关闭 trace/video/screenshot；失败诊断必须先清除 OCR raw UI 再生成脱敏附件，且最终仍执行扫描。
+隐私黄金图另包含一个只会出现在完整 raw OCR、不会被候选映射的唯一 sentinel。测试结束后必须扫描：全部请求 URL/query/header/body、浏览器 console、后端 stdout/stderr 与日志文件、H2 所有相关表和 audit、Playwright trace/video/screenshot/失败附件、LocalStorage、Cache Storage 以及 IndexedDB 的 database/store/key/value。sentinel 与原始文件名在上述位置必须均为零命中；IndexedDB 只允许 manifest 中已知版本的公共 traineddata cache，sessionStorage 只允许 workflow ID、短期 `pendingCreate` 非敏感 metadata，以及 workflow-scoped 的短期 `pendingWrite` 非敏感最小请求/恢复 metadata，且 `pendingWrite` 不得含比赛、市场、图片、raw OCR 或 API Key。敏感流程默认关闭 trace/video/screenshot；失败诊断必须先清除 OCR raw UI 再生成脱敏附件，且最终仍执行扫描。
 
 真实 Chromium 还必须验证公共模型缓存：持久 profile 的冷运行从同源各获取一次 `eng`/`chi_sim`，暖运行不再下载语言模型；Cache Storage/LocalStorage 不出现用户派生数据；IndexedDB 被禁用但模型已经载入内存时，本次 OCR 仍能完成。
 

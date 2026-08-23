@@ -43,10 +43,42 @@ function snapshotBelongsToWorkflow(
   workflow: OcrWorkflowAggregate,
   snapshot: UserConfirmedSnapshot,
 ): boolean {
-  if (workflow.confirmedSnapshotId !== snapshot.snapshotId) return false;
-  return snapshot.workflowId === undefined
-    || snapshot.workflowId === null
-    || snapshot.workflowId === workflow.workflowId;
+  return workflow.confirmedSnapshotId === snapshot.snapshotId
+    && snapshot.workflowId === workflow.workflowId
+    && snapshot.schemaVersion === 'CONFIRMED_SNAPSHOT_V2'
+    && snapshot.authorityType === 'SERVER_CONFIRMED_V2'
+    && snapshot.sourceType === 'USER_SCREENSHOT_CONFIRMED'
+    && snapshot.snapshotStatus === 'CONFIRMED'
+    && snapshot.analysisAllowed === true;
+}
+
+function hasId(value: string | null): boolean {
+  return value !== null && value.trim().length > 0;
+}
+
+function assertWorkflowAuthorityIds(workflow: OcrWorkflowAggregate): void {
+  const hasSnapshot = hasId(workflow.confirmedSnapshotId);
+  const hasReport = hasId(workflow.currentReportId);
+  const hasPlan = hasId(workflow.currentPlanId);
+  const valid = (() => {
+    switch (workflow.currentStage) {
+      case 'WAITING_LOCAL_OCR':
+      case 'WAITING_USER_CONFIRMATION':
+        return !hasSnapshot && !hasReport && !hasPlan;
+      case 'CONFIRMED':
+        return hasSnapshot && !hasReport && !hasPlan;
+      case 'ANALYSIS_GENERATED':
+        return hasSnapshot && hasReport && !hasPlan;
+      case 'PLAN_GENERATED':
+      case 'PENDING_RESULT':
+        return hasSnapshot && hasReport && hasPlan;
+      case 'ABANDONED':
+        return !hasSnapshot && !hasReport && !hasPlan;
+      default:
+        return false;
+    }
+  })();
+  if (!valid) throw new Error('工作流阶段与 authority ID 组合不一致，已阻断恢复。');
 }
 
 export const useOcrWorkflowStore = defineStore('ocrWorkflow', {
@@ -112,6 +144,10 @@ export const useOcrWorkflowStore = defineStore('ocrWorkflow', {
 
       try {
         const workflow = await fetchWorkflow(workflowId);
+        if (workflow.workflowId !== workflowId) {
+          throw new Error('服务端返回了不同的工作流 ID，已阻断恢复。');
+        }
+        assertWorkflowAuthorityIds(workflow);
         let snapshot: UserConfirmedSnapshot | null = null;
         if (workflow.confirmedSnapshotId !== null) {
           snapshot = await fetchSnapshot(workflow.confirmedSnapshotId);
@@ -120,9 +156,6 @@ export const useOcrWorkflowStore = defineStore('ocrWorkflow', {
           }
         }
         if (token !== this.hydrationToken) return null;
-        if (workflow.workflowId !== workflowId) {
-          throw new Error('服务端返回了不同的工作流 ID，已阻断恢复。');
-        }
 
         const existingDraft = this.reviewDraft?.ocrTaskId === workflow.currentOcrTaskId
           ? this.reviewDraft
@@ -156,6 +189,50 @@ export const useOcrWorkflowStore = defineStore('ocrWorkflow', {
         return null;
       }
       return this.hydrateWorkflow(workflowId, fetchers);
+    },
+    async refreshActiveWorkflow(
+      fetchers: WorkflowHydrationFetchers = {},
+    ): Promise<OcrWorkflowAggregate | null> {
+      const workflowId = this.activeWorkflowId;
+      if (workflowId === null || !isWorkflowId(workflowId)) return null;
+      const token = this.hydrationToken + 1;
+      this.hydrationToken = token;
+      const fetchWorkflow = fetchers.fetchWorkflow ?? getOcrWorkflow;
+      const fetchSnapshot = fetchers.fetchSnapshot ?? getConfirmedSnapshot;
+
+      try {
+        const workflow = await fetchWorkflow(workflowId);
+        if (workflow.workflowId !== workflowId) {
+          throw new Error('服务端返回了不同的工作流 ID，已阻断刷新。');
+        }
+        assertWorkflowAuthorityIds(workflow);
+        let snapshot: UserConfirmedSnapshot | null = this.confirmedSnapshot;
+        if (workflow.confirmedSnapshotId !== null) {
+          if (snapshot === null
+            || snapshot.snapshotId !== workflow.confirmedSnapshotId
+            || !snapshotBelongsToWorkflow(workflow, snapshot)) {
+            snapshot = await fetchSnapshot(workflow.confirmedSnapshotId);
+          }
+          if (!snapshotBelongsToWorkflow(workflow, snapshot)) {
+            throw new Error('工作流与确认快照不匹配，已阻断刷新。');
+          }
+        } else {
+          snapshot = null;
+        }
+        if (token !== this.hydrationToken) return null;
+
+        this.workflow = workflow;
+        this.activeWorkflowId = workflow.workflowId;
+        this.confirmedSnapshot = snapshot;
+        if (snapshot !== null) this.snapshotsById[snapshot.snapshotId] = snapshot;
+        this.errorMessage = null;
+        saveWorkflowId(workflow.workflowId);
+        return workflow;
+      } catch (error) {
+        if (token !== this.hydrationToken) return null;
+        this.errorMessage = describeHydrationError(error);
+        throw error;
+      }
     },
   },
 });

@@ -11,6 +11,20 @@ const ocrWorkflowStore = useOcrWorkflowStore();
 const analysisReportStore = useAnalysisReportStore();
 const simulatedPlanStore = useSimulatedPlanStore();
 const resultProviderStore = useResultProviderStore();
+const currentReport = computed(() => {
+  const reportId = ocrWorkflowStore.workflow?.currentReportId;
+  return reportId ? analysisReportStore.getReport(reportId) : null;
+});
+const currentPlan = computed(() => {
+  const planId = ocrWorkflowStore.workflow?.currentPlanId;
+  return planId ? simulatedPlanStore.getPlan(planId) : null;
+});
+const currentReportId = computed(() => ocrWorkflowStore.workflow?.currentReportId ?? null);
+const currentPlanId = computed(() => ocrWorkflowStore.workflow?.currentPlanId ?? null);
+const analysisStatus = computed(() => currentReport.value?.reportStatus
+  ?? (currentReportId.value ? ocrWorkflowStore.workflow?.currentStage : 'WAITING_CONFIRMED_SNAPSHOT'));
+const planStatus = computed(() => currentPlan.value?.planStatus
+  ?? (currentPlanId.value ? ocrWorkflowStore.workflow?.currentStage : 'WAITING_ANALYSIS_REPORT'));
 
 function workflowRoute(targetName: string, fallback: string): RouteLocationRaw {
   return ocrWorkflowStore.activeWorkflowId === null
@@ -33,13 +47,13 @@ const dashboardRows = computed(() => [
   },
   {
     name: 'AI 分析',
-    status: analysisReportStore.currentReport?.reportStatus ?? 'WAITING_CONFIRMED_SNAPSHOT',
+    status: analysisStatus.value,
     path: workflowRoute('WorkflowAnalysis', '/strategy-simulator'),
     next: '生成 Mock 规则引擎分析报告'
   },
   {
     name: '模拟方案',
-    status: simulatedPlanStore.currentPlan?.planStatus ?? 'WAITING_ANALYSIS_REPORT',
+    status: planStatus.value,
     path: workflowRoute('WorkflowPlans', '/saved-plans'),
     next: '保存为 PENDING_RESULT 模拟方案'
   },
@@ -80,11 +94,11 @@ const dashboardRows = computed(() => [
           </div>
           <div>
             <dt>分析报告</dt>
-            <dd>{{ analysisReportStore.currentReport?.reportId ?? '待生成' }}</dd>
+            <dd>{{ currentReportId ?? '待生成' }}</dd>
           </div>
           <div>
             <dt>保存方案</dt>
-            <dd>{{ simulatedPlanStore.currentPlan?.planId ?? '待保存' }}</dd>
+            <dd>{{ currentPlanId ?? '待保存' }}</dd>
           </div>
           <div>
             <dt>赛果源</dt>

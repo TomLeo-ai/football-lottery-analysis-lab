@@ -3,24 +3,25 @@ import { defineStore } from 'pinia';
 import type { SimulatedPlan } from '@/types/simulatedPlan';
 
 interface SimulatedPlanState {
-  generatedPlan: SimulatedPlan | null;
   savedPlans: SimulatedPlan[];
-  currentPlan: SimulatedPlan | null;
+  plansById: Record<string, SimulatedPlan>;
 }
 
 export const useSimulatedPlanStore = defineStore('simulatedPlan', {
   state: (): SimulatedPlanState => ({
-    generatedPlan: null,
     savedPlans: [],
-    currentPlan: null
+    plansById: {},
   }),
   actions: {
-    setGeneratedPlan(plan: SimulatedPlan) {
-      this.generatedPlan = plan;
+    cachePlan(plan: SimulatedPlan) {
+      this.plansById[plan.planId] = plan;
+    },
+    getPlan(planId: string): SimulatedPlan | null {
+      return this.plansById[planId] ?? null;
     },
     setSavedPlans(plans: SimulatedPlan[]) {
       this.savedPlans = plans;
-      this.currentPlan = plans[0] ?? null;
+      plans.forEach((plan) => this.cachePlan(plan));
     },
     upsertSavedPlan(plan: SimulatedPlan) {
       const existingIndex = this.savedPlans.findIndex((item) => item.planId === plan.planId);
@@ -29,10 +30,7 @@ export const useSimulatedPlanStore = defineStore('simulatedPlan', {
       } else {
         this.savedPlans.unshift(plan);
       }
-      this.currentPlan = plan;
+      this.cachePlan(plan);
     },
-    setCurrentPlan(plan: SimulatedPlan) {
-      this.currentPlan = plan;
-    }
-  }
+  },
 });

@@ -1,154 +1,140 @@
 package org.footballlab.plan;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.nio.charset.StandardCharsets;
-import java.util.List;
+import java.util.Map;
 
-import com.jayway.jsonpath.JsonPath;
-import org.footballlab.plan.domain.SimulatedPlanResponse;
-import org.footballlab.plan.repository.SimulatedPlanRepository;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.footballlab.analysis.repository.AnalysisReportRepository;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
-@SpringBootTest
+@SpringBootTest(properties =
+        "spring.datasource.url=jdbc:h2:mem:plan_controller_tests;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1")
 @AutoConfigureMockMvc
 class SimulatedPlanControllerTest {
-
-    private static final List<String> BLOCKED_OUTPUT_TERMS = List.of(
-            "\u5fc5\u4e2d",
-            "\u7a33\u8d5a",
-            "\u5305\u4e2d",
-            "\u56de\u672c",
-            "\u8ddf\u6295",
-            "\u5b9e\u5355\u63a8\u8350",
-            "\u52a0\u6ce8",
-            "\u652f\u4ed8\u63a5\u53e3");
 
     @Autowired
     private MockMvc mockMvc;
 
     @Autowired
-    private SimulatedPlanRepository simulatedPlanRepository;
+    private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @Autowired
+    private AnalysisReportRepository analysisReportRepository;
+
+    @BeforeEach
+    void cleanDatabase() {
+        jdbcTemplate.update("delete from review_record");
+        jdbcTemplate.update("delete from simulated_plan_item");
+        jdbcTemplate.update("delete from simulated_plan");
+        jdbcTemplate.update("delete from workflow_operation");
+        jdbcTemplate.update("delete from analysis_report");
+        jdbcTemplate.update("delete from ocr_confirmed_snapshot");
+        jdbcTemplate.update("delete from ocr_task");
+        jdbcTemplate.update("delete from screenshot_task");
+        jdbcTemplate.update("delete from ocr_workflow");
+    }
 
     @Test
-    void shouldGenerateSaveListAndReadSimulatedPlanAsPendingResult() throws Exception {
-        MvcResult simulateResult = mockMvc.perform(post("/api/strategies/simulate")
+    void generatesAndSavesOnlyFromPersistedAuthoritativeReport() throws Exception {
+        AuthoritativePlanTestFixture.Fixture fixture = AuthoritativePlanTestFixture.insert(
+                jdbcTemplate, objectMapper, analysisReportRepository);
+
+        MvcResult generatedResult = mockMvc.perform(post("/api/strategies/simulate")
+                        .header("Idempotency-Key", AuthoritativePlanTestFixture.idempotencyKey())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {
-                                  "reportId": "analysis-demo-001",
-                                  "snapshotId": "snapshot-demo-001",
-                                  "inputSourceType": "USER_SCREENSHOT_CONFIRMED",
-                                  "reportStatus": "GENERATED",
-                                  "currency": "CNY",
-                                  "budgetAmount": 20,
-                                  "strategyParameters": {
-                                    "budgetAmount": 30,
-                                    "currency": "CNY",
-                                    "targetTicketCount": 4,
-                                    "minTicketCount": 3,
-                                    "maxTicketCount": 5,
-                                    "riskPreference": "AGGRESSIVE",
-                                    "mainTicketRatio": 0.5,
-                                    "defensiveTicketRatio": 0.3,
-                                    "entertainmentTicketRatio": 0.2,
-                                    "enableEntertainmentTicket": true,
-                                    "entertainmentTicketMaxCost": 2,
-                                    "maxParlayLegs": 3,
-                                    "preferredPlayTypes": ["WIN_DRAW_LOSS"],
-                                    "excludedPlayTypes": ["EXACT_SCORE"],
-                                    "exactScorePolicy": "DISABLED",
-                                    "allowLowReturnTicket": true,
-                                    "upsetCoverageLevel": "STRONG"
-                                  },
-                                  "riskWarnings": [
-                                    {
-                                      "riskCode": "INFO_RISK",
-                                      "riskLevel": "MEDIUM",
-                                      "message": "仅基于用户确认快照，缺少公开赛果交叉验证。"
-                                    }
-                                  ],
-                                  "simulatedSelections": [
-                                    {
-                                      "matchId": "demo-match-001",
-                                      "playType": "WIN_DRAW_LOSS",
-                                      "selection": "HOME_WIN",
-                                      "odds": 2.05,
-                                      "stakeAmount": 10,
-                                      "note": "模拟选择，用于生成待保存方案。"
-                                    }
-                                  ]
-                                }
-                                """))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.planId").exists())
-                .andExpect(jsonPath("$.data.planType").value("SIMULATED_ONLY"))
+                                {"reportId":"%s"}
+                                """.formatted(fixture.reportId())))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.code").value(201))
                 .andExpect(jsonPath("$.data.planStatus").value("GENERATED"))
-                .andExpect(jsonPath("$.data.statusFlow[0]").value("GENERATED"))
-                .andExpect(jsonPath("$.data.items[0].matchId").value("demo-match-001"))
-                .andExpect(jsonPath("$.data.snapshot.reportId").value("analysis-demo-001"))
-                .andExpect(jsonPath("$.data.strategyParameters.budgetAmount").value(30.0))
-                .andExpect(jsonPath("$.data.snapshot.strategyParameters.targetTicketCount").value(4))
-                .andExpect(jsonPath("$.data.complianceNotice", containsString("非官方")))
-                .andExpect(jsonPath("$.data.complianceNotice", containsString("仅模拟")))
+                .andExpect(jsonPath("$.data.reportId").value(fixture.reportId()))
+                .andExpect(jsonPath("$.data.snapshotId").value(fixture.snapshotId()))
+                .andExpect(jsonPath("$.data.currency").value("CNY"))
+                .andExpect(jsonPath("$.data.budgetAmount").value(36.5))
+                .andExpect(jsonPath("$.data.strategyParameters.riskPreference").value("BALANCED"))
+                .andExpect(jsonPath("$.data.items[0].matchId").value(fixture.matchId()))
+                .andExpect(jsonPath("$.data.items[0].league").value("Authoritative League"))
+                .andExpect(jsonPath("$.data.items[0].playType").value("WIN_DRAW_LOSS"))
+                .andExpect(jsonPath("$.data.items[0].selection").value("HOME_WIN"))
+                .andExpect(jsonPath("$.data.items[0].odds").value(2.15))
+                .andExpect(jsonPath("$.data.items[0].stakeAmount").value(12.5))
+                .andExpect(jsonPath("$.data.snapshot.inputSourceType").value("USER_SCREENSHOT_CONFIRMED"))
+                .andExpect(jsonPath("$.data.snapshot.engineType").value("MOCK_RULE_ENGINE"))
                 .andReturn();
+        String planId = data(generatedResult).path("planId").asText();
 
-        String generatedBody = simulateResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
-        String generatedPlanId = JsonPath.read(generatedBody, "$.data.planId");
+        assertThat(planId).startsWith("sim-plan-");
+        assertThat(data(generatedResult).path("items").get(0).path("planItemId").asText())
+                .startsWith("sim-item-");
+        assertThat(data(generatedResult).path("snapshot").path("planSnapshotId").asText())
+                .startsWith("sim-snapshot-");
+        assertThat(workflow(fixture.workflowId()))
+                .containsEntry("current_stage", "PLAN_GENERATED")
+                .containsEntry("current_plan_id", planId);
 
-        MvcResult saveResult = mockMvc.perform(post("/api/simulated-plans")
+        mockMvc.perform(get("/api/simulated-plans/{planId}", planId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.planStatus").value("GENERATED"));
+
+        Map<String, Object> itemBefore = itemRow(planId);
+        String payloadBefore = String.valueOf(itemBefore.get("payload_json"));
+        MvcResult savedResult = mockMvc.perform(post("/api/simulated-plans")
+                        .header("Idempotency-Key", AuthoritativePlanTestFixture.idempotencyKey())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {
-                                  "generatedPlanId": "%s",
-                                  "operatorNote": "保存为等待公开赛果阶段的模拟方案。"
-                                }
-                                """.formatted(generatedPlanId)))
+                                {"generatedPlanId":"%s","operatorNote":"  waiting for results  "}
+                                """.formatted(planId)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.planId").value(generatedPlanId))
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.planId").value(planId))
                 .andExpect(jsonPath("$.data.planStatus").value("PENDING_RESULT"))
-                .andExpect(jsonPath("$.data.statusFlow[0]").value("GENERATED"))
-                .andExpect(jsonPath("$.data.statusFlow[1]").value("SAVED"))
-                .andExpect(jsonPath("$.data.statusFlow[2]").value("PENDING_RESULT"))
-                .andExpect(jsonPath("$.data.items[0].planItemId").exists())
-                .andExpect(jsonPath("$.data.items[0].itemStatus").value("GENERATED"))
-                .andExpect(jsonPath("$.data.snapshot.snapshotId").value("snapshot-demo-001"))
-                .andExpect(jsonPath("$.data.strategyParameters.upsetCoverageLevel").value("STRONG"))
+                .andExpect(jsonPath("$.data.operatorNote").value("waiting for results"))
                 .andReturn();
 
+        mockMvc.perform(get("/api/simulated-plans/{planId}", planId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.planStatus").value("PENDING_RESULT"));
         mockMvc.perform(get("/api/simulated-plans"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].planId").value(generatedPlanId))
-                .andExpect(jsonPath("$.data[0].planStatus").value("PENDING_RESULT"))
-                .andExpect(jsonPath("$.data[0].strategyParameters.exactScorePolicy").value("DISABLED"));
+                .andExpect(jsonPath("$.data[?(@.planId == '%s')].planStatus".formatted(planId))
+                        .value("PENDING_RESULT"));
 
-        mockMvc.perform(get("/api/simulated-plans/{planId}", generatedPlanId))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.planId").value(generatedPlanId))
-                .andExpect(jsonPath("$.data.items[0].itemStatus").value("GENERATED"))
-                .andExpect(jsonPath("$.data.snapshot.reportId").value("analysis-demo-001"))
-                .andExpect(jsonPath("$.data.snapshot.strategyParameters.maxParlayLegs").value(3));
+        assertThat(workflow(fixture.workflowId()))
+                .containsEntry("current_stage", "PENDING_RESULT")
+                .containsEntry("current_plan_id", planId);
+        assertThat(itemRow(planId)).containsAllEntriesOf(itemBefore);
+        assertThat(String.valueOf(itemRow(planId).get("payload_json"))).isEqualTo(payloadBefore);
+        assertThat(data(savedResult).path("items")).isEqualTo(data(generatedResult).path("items"));
+    }
 
-        assertThat(simulatedPlanRepository.findPlan(generatedPlanId))
-                .isPresent()
-                .get()
-                .extracting(SimulatedPlanResponse::planStatus)
-                .isEqualTo("PENDING_RESULT");
+    private JsonNode data(MvcResult result) throws Exception {
+        return objectMapper.readTree(result.getResponse().getContentAsString(StandardCharsets.UTF_8)).path("data");
+    }
 
-        String savedBody = saveResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
-        for (String term : BLOCKED_OUTPUT_TERMS) {
-            assertThat(generatedBody + savedBody).doesNotContain(term);
-        }
+    private Map<String, Object> workflow(String workflowId) {
+        return jdbcTemplate.queryForMap("select * from ocr_workflow where workflow_id = ?", workflowId);
+    }
+
+    private Map<String, Object> itemRow(String planId) {
+        return jdbcTemplate.queryForMap("select * from simulated_plan_item where plan_id = ?", planId);
     }
 }

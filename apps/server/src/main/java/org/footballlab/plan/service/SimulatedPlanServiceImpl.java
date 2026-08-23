@@ -1,217 +1,248 @@
 package org.footballlab.plan.service;
 
-import java.time.OffsetDateTime;
-import java.time.ZoneId;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.Function;
-import java.util.stream.Collectors;
+import java.util.Objects;
+import java.util.UUID;
 
-import org.footballlab.analysis.domain.ProbabilityInsightResponse;
-import org.footballlab.analysis.domain.SimulatedSelectionResponse;
-import org.footballlab.plan.domain.SimulatedPlanItemResponse;
+import org.footballlab.common.error.ApiException;
+import org.footballlab.common.error.ApiFieldError;
 import org.footballlab.plan.domain.SimulatedPlanResponse;
 import org.footballlab.plan.domain.SimulatedPlanSaveRequest;
-import org.footballlab.plan.domain.SimulatedPlanSnapshotResponse;
 import org.footballlab.plan.domain.StrategySimulationRequest;
+import org.footballlab.plan.persistence.SimulatedPlanV2Record;
 import org.footballlab.plan.repository.SimulatedPlanRepository;
-import org.footballlab.strategy.domain.StrategyParameterRequest;
-import org.footballlab.strategy.service.StrategyParameterValidator;
+import org.footballlab.workflow.domain.WorkflowOperationType;
+import org.footballlab.workflow.domain.WorkflowRecord;
+import org.footballlab.workflow.domain.WorkflowStage;
+import org.footballlab.workflow.repository.WorkflowRepository;
+import org.footballlab.workflow.service.RequestHashService;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class SimulatedPlanServiceImpl implements SimulatedPlanService {
 
-    private static final ZoneId DEFAULT_ZONE = ZoneId.of("Asia/Shanghai");
-    private static final String REQUIRED_SOURCE_TYPE = "USER_SCREENSHOT_CONFIRMED";
-    private static final String REQUIRED_REPORT_STATUS = "GENERATED";
-    private static final String PLAN_TYPE = "SIMULATED_ONLY";
-    private static final String STATUS_GENERATED = "GENERATED";
-    private static final String STATUS_SAVED = "SAVED";
-    private static final String STATUS_PENDING_RESULT = "PENDING_RESULT";
-    private static final String DEFAULT_ENGINE_TYPE = "MOCK_RULE_ENGINE";
-    private static final String COMPLIANCE_NOTICE = "非官方，仅模拟保存与复盘流程验证；不构成确定性建议。";
+    private static final String GENERATED = "GENERATED";
+    private static final String PENDING_RESULT = "PENDING_RESULT";
 
     private final SimulatedPlanRepository simulatedPlanRepository;
-    private final StrategyParameterValidator strategyParameterValidator;
-    private final AtomicLong planSequence;
-    private final AtomicLong itemSequence;
-    private final AtomicLong snapshotSequence;
+    private final WorkflowRepository workflowRepository;
+    private final RequestHashService requestHashService;
+    private final SimulatedPlanTransactionCoordinator transactionCoordinator;
 
     public SimulatedPlanServiceImpl(
             SimulatedPlanRepository simulatedPlanRepository,
-            StrategyParameterValidator strategyParameterValidator) {
+            WorkflowRepository workflowRepository,
+            RequestHashService requestHashService,
+            SimulatedPlanTransactionCoordinator transactionCoordinator) {
         this.simulatedPlanRepository = simulatedPlanRepository;
-        this.strategyParameterValidator = strategyParameterValidator;
-        long nextPlanSequence = simulatedPlanRepository.nextPlanSequence();
-        this.planSequence = new AtomicLong(nextPlanSequence);
-        this.itemSequence = new AtomicLong(simulatedPlanRepository.nextPlanItemSequence());
-        this.snapshotSequence = new AtomicLong(nextPlanSequence);
+        this.workflowRepository = workflowRepository;
+        this.requestHashService = requestHashService;
+        this.transactionCoordinator = transactionCoordinator;
     }
 
     @Override
-    public SimulatedPlanResponse simulate(StrategySimulationRequest request) {
+    public PlanMutationResult simulate(StrategySimulationRequest request, String idempotencyKey) {
+        validateIdempotencyKey(idempotencyKey);
         validateSimulationRequest(request);
-        StrategyParameterRequest strategyParameters = strategyParameterValidator.resolve(request.strategyParameters());
-
-        String now = now();
-        String planId = "sim-plan-%06d".formatted(planSequence.getAndIncrement());
-        Map<String, ProbabilityInsightResponse> probabilityByMatchId = buildProbabilityMap(request);
-        List<SimulatedPlanItemResponse> items = request.simulatedSelections().stream()
-                .map(selection -> buildGeneratedItem(selection, probabilityByMatchId.get(selection.matchId())))
-                .toList();
-        SimulatedPlanSnapshotResponse snapshot = new SimulatedPlanSnapshotResponse(
-                "sim-snapshot-%06d".formatted(snapshotSequence.getAndIncrement()),
-                request.snapshotId(),
-                request.reportId(),
-                request.inputSourceType(),
-                resolveEngineType(request.engineType()),
-                request.reportStatus(),
-                strategyParameters,
-                items.size(),
-                STATUS_GENERATED,
-                now);
-        SimulatedPlanResponse generatedPlan = new SimulatedPlanResponse(
-                planId,
-                PLAN_TYPE,
-                STATUS_GENERATED,
-                request.reportId(),
-                request.snapshotId(),
-                request.currency(),
-                strategyParameters.budgetAmount(),
-                strategyParameters,
-                List.of(STATUS_GENERATED),
-                items,
-                snapshot,
-                COMPLIANCE_NOTICE,
-                null,
-                now,
-                now);
-
-        simulatedPlanRepository.savePlan(generatedPlan);
-        return generatedPlan;
+        String requestHash = requestHashService.hash(
+                WorkflowOperationType.CREATE_PLAN,
+                "POST",
+                "/api/strategies/simulate",
+                Map.of("reportId", request.reportId()));
+        SimulatedPlanTransactionCoordinator.PlanMutationOutcome outcome;
+        try {
+            outcome = transactionCoordinator.generate(idempotencyKey, request.reportId(), requestHash);
+        } catch (ApiException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            transactionCoordinator.recordPersistenceFailureRequiresNew(
+                    idempotencyKey, null, WorkflowOperationType.CREATE_PLAN, requestHash);
+            throw persistenceFailure();
+        }
+        if (outcome.failure() != null) {
+            throw outcome.failure();
+        }
+        return new PlanMutationResult(outcome.httpStatus(), outcome.plan());
     }
 
     @Override
-    public SimulatedPlanResponse save(SimulatedPlanSaveRequest request) {
-        if (request.generatedPlanId() == null || request.generatedPlanId().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "generatedPlanId is required.");
+    public PlanMutationResult save(SimulatedPlanSaveRequest request, String idempotencyKey) {
+        validateIdempotencyKey(idempotencyKey);
+        NormalizedSave normalized = normalizeSaveRequest(request);
+        Map<String, Object> hashFields = new LinkedHashMap<>();
+        hashFields.put("generatedPlanId", normalized.planId());
+        hashFields.put("operatorNote", normalized.operatorNote());
+        String requestHash = requestHashService.hash(
+                WorkflowOperationType.SAVE_PLAN,
+                "POST",
+                "/api/simulated-plans",
+                hashFields);
+        SimulatedPlanTransactionCoordinator.PlanMutationOutcome outcome;
+        try {
+            outcome = transactionCoordinator.save(
+                    idempotencyKey, normalized.planId(), normalized.operatorNote(), requestHash);
+        } catch (ApiException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            transactionCoordinator.recordPersistenceFailureRequiresNew(
+                    idempotencyKey, null, WorkflowOperationType.SAVE_PLAN, requestHash);
+            throw persistenceFailure();
         }
-
-        SimulatedPlanResponse generatedPlan = simulatedPlanRepository.findPlan(request.generatedPlanId())
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND,
-                        "Generated simulated plan not found."));
-
-        String now = now();
-        SimulatedPlanResponse savedPlan = new SimulatedPlanResponse(
-                generatedPlan.planId(),
-                generatedPlan.planType(),
-                STATUS_PENDING_RESULT,
-                generatedPlan.reportId(),
-                generatedPlan.snapshotId(),
-                generatedPlan.currency(),
-                generatedPlan.budgetAmount(),
-                generatedPlan.strategyParameters(),
-                List.of(STATUS_GENERATED, STATUS_SAVED, STATUS_PENDING_RESULT),
-                generatedPlan.items(),
-                new SimulatedPlanSnapshotResponse(
-                        generatedPlan.snapshot().planSnapshotId(),
-                        generatedPlan.snapshot().snapshotId(),
-                        generatedPlan.snapshot().reportId(),
-                        generatedPlan.snapshot().inputSourceType(),
-                        generatedPlan.snapshot().engineType(),
-                        generatedPlan.snapshot().sourceReportStatus(),
-                        generatedPlan.snapshot().strategyParameters(),
-                        generatedPlan.snapshot().selectionCount(),
-                        STATUS_PENDING_RESULT,
-                        generatedPlan.snapshot().capturedAt()),
-                generatedPlan.complianceNotice(),
-                request.operatorNote(),
-                generatedPlan.createdAt(),
-                now);
-
-        simulatedPlanRepository.savePlan(savedPlan);
-        return savedPlan;
+        if (outcome.failure() != null) {
+            throw outcome.failure();
+        }
+        return new PlanMutationResult(outcome.httpStatus(), outcome.plan());
     }
 
     @Override
     public List<SimulatedPlanResponse> listSavedPlans() {
-        return simulatedPlanRepository.listSavedPlans();
+        try {
+            return simulatedPlanRepository.listSavedPlans().stream()
+                    .map(plan -> getSavedPlan(plan.planId()))
+                    .toList();
+        } catch (ApiException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            throw lineageFailure();
+        }
+    }
+
+    @Override
+    public SimulatedPlanResponse getPlanDetail(String planId) {
+        validatePlanId(planId);
+        try {
+            var v2 = simulatedPlanRepository.findV2ById(planId);
+            if (v2.isPresent()) {
+                SimulatedPlanV2Record plan = v2.orElseThrow();
+                WorkflowStage expectedStage = switch (plan.planStatus()) {
+                    case GENERATED -> WorkflowStage.PLAN_GENERATED;
+                    case PENDING_RESULT -> WorkflowStage.PENDING_RESULT;
+                    default -> throw lineageFailure();
+                };
+                validateReadableV2(plan, expectedStage);
+                return plan.toResponse();
+            }
+            return simulatedPlanRepository.findAnyById(planId)
+                    .filter(plan -> PENDING_RESULT.equals(plan.planStatus()))
+                    .orElseThrow(() -> planNotFound("Visible simulated plan was not found."));
+        } catch (ApiException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            throw lineageFailure();
+        }
     }
 
     @Override
     public SimulatedPlanResponse getSavedPlan(String planId) {
-        return simulatedPlanRepository.findPlan(planId)
-                .filter(plan -> STATUS_PENDING_RESULT.equals(plan.planStatus()))
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND,
-                        "Saved simulated plan not found."));
+        validatePlanId(planId);
+        try {
+            var v2 = simulatedPlanRepository.findV2ById(planId);
+            if (v2.isPresent()) {
+                SimulatedPlanV2Record plan = v2.orElseThrow();
+                if (!PENDING_RESULT.equals(plan.planStatus())) {
+                    throw planNotFound("Pending simulated plan was not found.");
+                }
+                validateReadableV2(plan, WorkflowStage.PENDING_RESULT);
+                return plan.toResponse();
+            }
+            return simulatedPlanRepository.findAnyById(planId)
+                    .filter(plan -> PENDING_RESULT.equals(plan.planStatus()))
+                    .orElseThrow(() -> planNotFound("Pending simulated plan was not found."));
+        } catch (ApiException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            throw lineageFailure();
+        }
+    }
+
+    private void validateReadableV2(SimulatedPlanV2Record plan, WorkflowStage expectedStage) {
+        WorkflowRecord workflow = workflowRepository.findById(plan.workflowId())
+                .orElseThrow(this::lineageFailure);
+        if (workflow.currentStage() != expectedStage
+                || !Objects.equals(plan.workflowId(), workflow.workflowId())
+                || !Objects.equals(plan.planId(), workflow.currentPlanId())
+                || !Objects.equals(plan.reportId(), workflow.currentReportId())
+                || !Objects.equals(plan.snapshotId(), workflow.confirmedSnapshotId())) {
+            throw lineageFailure();
+        }
     }
 
     private void validateSimulationRequest(StrategySimulationRequest request) {
-        if (request == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Simulation request is required.");
-        }
-        if (!REQUIRED_SOURCE_TYPE.equals(request.inputSourceType())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Only USER_SCREENSHOT_CONFIRMED reports can be simulated.");
-        }
-        if (!REQUIRED_REPORT_STATUS.equals(request.reportStatus())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Only GENERATED analysis reports can be simulated.");
-        }
-        if (request.reportId() == null || request.reportId().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "reportId is required.");
-        }
-        if (request.snapshotId() == null || request.snapshotId().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "snapshotId is required.");
-        }
-        if (request.simulatedSelections() == null || request.simulatedSelections().isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "At least one simulated selection is required.");
+        if (request == null || request.reportId() == null || request.reportId().isBlank()) {
+            throw validationFailure("reportId", "reportId is required.");
         }
     }
 
-    private SimulatedPlanItemResponse buildGeneratedItem(
-            SimulatedSelectionResponse selection,
-            ProbabilityInsightResponse probabilityInsight) {
-        return new SimulatedPlanItemResponse(
-                "sim-item-%06d".formatted(itemSequence.getAndIncrement()),
-                selection.matchId(),
-                probabilityInsight == null ? null : probabilityInsight.matchDate(),
-                probabilityInsight == null ? null : probabilityInsight.league(),
-                probabilityInsight == null ? null : probabilityInsight.homeTeam(),
-                probabilityInsight == null ? null : probabilityInsight.awayTeam(),
-                probabilityInsight == null ? null : probabilityInsight.kickoffTime(),
-                selection.playType(),
-                selection.selection(),
-                selection.odds(),
-                selection.stakeAmount(),
-                STATUS_GENERATED,
-                selection.note());
-    }
-
-    private Map<String, ProbabilityInsightResponse> buildProbabilityMap(StrategySimulationRequest request) {
-        if (request.probabilityAnalysis() == null) {
-            return Map.of();
+    private NormalizedSave normalizeSaveRequest(SimulatedPlanSaveRequest request) {
+        if (request == null || request.generatedPlanId() == null || request.generatedPlanId().isBlank()) {
+            throw validationFailure("generatedPlanId", "generatedPlanId is required.");
         }
-        return request.probabilityAnalysis().stream()
-                .filter(item -> item.matchId() != null && !item.matchId().isBlank())
-                .collect(Collectors.toMap(
-                        ProbabilityInsightResponse::matchId,
-                        Function.identity(),
-                        (first, ignored) -> first));
-    }
-
-    private String resolveEngineType(String engineType) {
-        if (engineType == null || engineType.isBlank()) {
-            return DEFAULT_ENGINE_TYPE;
+        String note = request.operatorNote();
+        if (note != null) {
+            note = note.trim();
+            if (note.isEmpty()) {
+                note = null;
+            } else if (note.length() > 512) {
+                throw validationFailure("operatorNote", "operatorNote must not exceed 512 characters.");
+            }
         }
-        return engineType;
+        return new NormalizedSave(request.generatedPlanId().trim(), note);
     }
 
-    private String now() {
-        return OffsetDateTime.now(DEFAULT_ZONE).toString();
+    private void validateIdempotencyKey(String idempotencyKey) {
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            throw invalidIdempotencyKey();
+        }
+        try {
+            UUID.fromString(idempotencyKey);
+        } catch (IllegalArgumentException exception) {
+            throw invalidIdempotencyKey();
+        }
+    }
+
+    private void validatePlanId(String planId) {
+        if (planId == null || planId.isBlank()) {
+            throw planNotFound("Simulated plan was not found.");
+        }
+    }
+
+    private ApiException invalidIdempotencyKey() {
+        return new ApiException(
+                HttpStatus.BAD_REQUEST,
+                "INVALID_IDEMPOTENCY_KEY",
+                "A UUID Idempotency-Key header is required.");
+    }
+
+    private ApiException validationFailure(String field, String message) {
+        return new ApiException(
+                HttpStatus.BAD_REQUEST,
+                "VALIDATION_FAILED",
+                "Request validation failed.",
+                List.of(new ApiFieldError(field, message)),
+                Map.of());
+    }
+
+    private ApiException persistenceFailure() {
+        return new ApiException(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "PLAN_PERSISTENCE_FAILED",
+                "The plan could not be persisted safely.");
+    }
+
+    private ApiException lineageFailure() {
+        return new ApiException(
+                HttpStatus.CONFLICT,
+                "PLAN_LINEAGE_INTEGRITY_FAILED",
+                "Simulated plan v2 lineage integrity validation failed.");
+    }
+
+    private ApiException planNotFound(String message) {
+        return new ApiException(HttpStatus.NOT_FOUND, "PLAN_NOT_FOUND", message);
+    }
+
+    private record NormalizedSave(String planId, String operatorNote) {
     }
 }

@@ -77,6 +77,9 @@ export type WorkflowStage =
   | 'WAITING_LOCAL_OCR'
   | 'WAITING_USER_CONFIRMATION'
   | 'CONFIRMED'
+  | 'ANALYSIS_GENERATED'
+  | 'PLAN_GENERATED'
+  | 'PENDING_RESULT'
   | 'ABANDONED';
 
 export interface OcrWorkflowAggregate {

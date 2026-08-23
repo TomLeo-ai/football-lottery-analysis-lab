@@ -17,7 +17,9 @@ import WorkflowShell from '@/views/WorkflowShell.vue';
 
 const WAITING_OCR_STAGES = ['WAITING_LOCAL_OCR', 'WAITING_USER_CONFIRMATION', 'CONFIRMED'];
 const REVIEW_STAGES = ['WAITING_USER_CONFIRMATION', 'CONFIRMED'];
-const CONFIRMED_STAGES = ['CONFIRMED'];
+const AUTHORITY_READ_STAGES = ['CONFIRMED', 'ANALYSIS_GENERATED', 'PLAN_GENERATED', 'PENDING_RESULT'];
+const PLAN_STAGES = ['ANALYSIS_GENERATED', 'PLAN_GENERATED', 'PENDING_RESULT'];
+const PLAN_DETAIL_STAGES = ['PLAN_GENERATED', 'PENDING_RESULT'];
 
 function legacyWorkflowEntry(
   path: string,
@@ -85,26 +87,26 @@ const routes: RouteRecordRaw[] = [
         path: 'match-workspace',
         name: 'WorkflowMatchWorkspace',
         component: MatchWorkspace,
-        meta: { allowedStages: CONFIRMED_STAGES },
+        meta: { allowedStages: AUTHORITY_READ_STAGES },
       },
       {
         path: 'analysis',
         name: 'WorkflowAnalysis',
         component: StrategySimulator,
-        meta: { allowedStages: CONFIRMED_STAGES },
+        meta: { allowedStages: AUTHORITY_READ_STAGES },
       },
       {
         path: 'plans',
         name: 'WorkflowPlans',
         component: SavedPlans,
-        meta: { allowedStages: CONFIRMED_STAGES },
+        meta: { allowedStages: PLAN_STAGES },
       },
       {
         path: 'plans/:planId',
         name: 'WorkflowPlanDetail',
         component: SavedPlans,
         props: true,
-        meta: { allowedStages: CONFIRMED_STAGES },
+        meta: { allowedStages: PLAN_DETAIL_STAGES },
       },
     ],
   },

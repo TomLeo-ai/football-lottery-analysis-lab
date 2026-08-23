@@ -1,5 +1,6 @@
 package org.footballlab.workflow.service;
 
+import java.sql.SQLException;
 import java.util.Map;
 
 import org.footballlab.common.error.ApiException;
@@ -8,6 +9,8 @@ import org.footballlab.workflow.domain.WorkflowOperationStatus;
 import org.footballlab.workflow.domain.WorkflowOperationType;
 import org.footballlab.workflow.repository.WorkflowOperationRepository;
 import org.springframework.http.HttpStatus;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,9 +31,20 @@ public class WorkflowOperationService {
             String requestSha256,
             String now
     ) {
-        return operationRepository.findByKey(idempotencyKey)
-                .map(existing -> classifyExisting(existing, operationType, requestSha256))
-                .orElseGet(() -> createReservation(idempotencyKey, workflowId, operationType, requestSha256, now));
+        var existing = operationRepository.findByKey(idempotencyKey);
+        if (existing.isPresent()) {
+            return classifyExisting(existing.orElseThrow(), operationType, requestSha256);
+        }
+        try {
+            return createReservation(idempotencyKey, workflowId, operationType, requestSha256, now);
+        } catch (DataIntegrityViolationException exception) {
+            if (!isDuplicateKey(exception)) {
+                throw exception;
+            }
+            return operationRepository.findByKey(idempotencyKey)
+                    .map(conflicting -> classifyExisting(conflicting, operationType, requestSha256))
+                    .orElseThrow(() -> exception);
+        }
     }
 
     @Transactional
@@ -104,6 +118,23 @@ public class WorkflowOperationService {
             return new Reservation(ReservationStatus.IN_PROGRESS, existing);
         }
         return new Reservation(ReservationStatus.REPLAY, existing);
+    }
+
+    private boolean isDuplicateKey(DataIntegrityViolationException exception) {
+        if (exception instanceof DuplicateKeyException) {
+            return true;
+        }
+        Throwable current = exception;
+        while (current != null) {
+            if (current instanceof SQLException sqlException) {
+                if (sqlException.getErrorCode() == 1062
+                        || "23505".equals(sqlException.getSQLState())) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     public enum ReservationStatus {
