@@ -223,7 +223,7 @@ export interface LocalReviewDraftMarket {
 
 export interface LocalReviewDraft {
   status: LocalReviewDraftStatus;
-  sourceDeclaration: SourceDeclaration;
+  sourceDeclaration: SourceDeclaration | null;
   analysisAllowed: false;
   budgetAmount: number;
   currency: 'CNY';

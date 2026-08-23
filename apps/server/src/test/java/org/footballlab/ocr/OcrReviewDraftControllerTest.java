@@ -1,6 +1,7 @@
 package org.footballlab.ocr;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -129,6 +130,31 @@ class OcrReviewDraftControllerTest {
                 .andExpect(jsonPath("$.error.errorCode").value("VALIDATION_FAILED"));
     }
 
+    @Test
+    void restoresSavedDraftInOriginalOrderAndFailsClosedWhenMissing() throws Exception {
+        String ocrTaskId = createWorkflowAndManualBlankDraft();
+
+        mockMvc.perform(put("/api/ocr/review-drafts/{ocrTaskId}", ocrTaskId)
+                        .header(OcrWorkflowTransactionService.IDEMPOTENCY_KEY_HEADER, UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(orderedDraftBody()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.revision").value(1));
+
+        mockMvc.perform(get("/api/ocr/review-drafts/{ocrTaskId}", ocrTaskId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.ocrTaskId").value(ocrTaskId))
+                .andExpect(jsonPath("$.data.revision").value(1))
+                .andExpect(jsonPath("$.data.matches[0].homeTeam").value("First Home"))
+                .andExpect(jsonPath("$.data.matches[1].homeTeam").value("Second Home"))
+                .andExpect(jsonPath("$.data.markets[0].matchId").value("match-first"))
+                .andExpect(jsonPath("$.data.markets[1].matchId").value("match-second"));
+
+        mockMvc.perform(get("/api/ocr/review-drafts/{ocrTaskId}", "missing-ocr-task"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.errorCode").value("DRAFT_NOT_FOUND"));
+    }
+
     private String createWorkflowAndManualBlankDraft() throws Exception {
         MvcResult workflowResult = mockMvc.perform(post("/api/ocr/workflows")
                         .header(OcrWorkflowTransactionService.IDEMPOTENCY_KEY_HEADER, UUID.randomUUID().toString())
@@ -197,5 +223,50 @@ class OcrReviewDraftControllerTest {
                   ]
                 }
                 """.formatted(expectedRevision, homeTeam);
+    }
+
+    private String orderedDraftBody() {
+        return """
+                {
+                  "expectedRevision": 0,
+                  "riskPreference": "BALANCED",
+                  "budgetAmount": 30.00,
+                  "currency": "CNY",
+                  "matches": [
+                    {
+                      "matchId": "match-first",
+                      "matchDate": "2026-08-22",
+                      "league": "Fictional League",
+                      "homeTeam": "First Home",
+                      "awayTeam": "First Away",
+                      "kickoffTime": "2026-08-22T12:00:00Z"
+                    },
+                    {
+                      "matchId": "match-second",
+                      "matchDate": "2026-08-23",
+                      "league": "Fictional League",
+                      "homeTeam": "Second Home",
+                      "awayTeam": "Second Away",
+                      "kickoffTime": "2026-08-23T12:00:00Z"
+                    }
+                  ],
+                  "markets": [
+                    {
+                      "marketId": "market-first",
+                      "matchId": "match-first",
+                      "playType": "WIN_DRAW_LOSS",
+                      "selection": "HOME_WIN",
+                      "odds": 2.05
+                    },
+                    {
+                      "marketId": "market-second",
+                      "matchId": "match-second",
+                      "playType": "WIN_DRAW_LOSS",
+                      "selection": "DRAW",
+                      "odds": 3.40
+                    }
+                  ]
+                }
+                """;
     }
 }

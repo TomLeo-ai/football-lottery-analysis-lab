@@ -367,6 +367,74 @@ describe('OcrReviewWizard', () => {
     expect(workflowStore.confirmedSnapshot?.snapshotId).toBe('snapshot-001');
   });
 
+  it('restores a persisted draft revision and original match/market order without evidence', async () => {
+    const workflowStore = useOcrWorkflowStore();
+    workflowStore.$patch({
+      persistedReviewDraft: {
+        ocrTaskId: 'ocr-restored',
+        workflowId: 'workflow-restored',
+        revision: 4,
+        draftStatus: 'ACTIVE',
+        riskPreference: 'LOW',
+        budgetAmount: 42,
+        currency: 'CNY',
+        matches: [
+          {
+            matchId: MATCH_B,
+            matchDate: '2030-04-02',
+            league: 'Second League',
+            homeTeam: 'Second Home',
+            awayTeam: 'Second Away',
+            kickoffTime: '2030-04-02T20:00:00+08:00',
+          },
+          {
+            matchId: MATCH_A,
+            matchDate: '2030-04-01',
+            league: 'First League',
+            homeTeam: 'First Home',
+            awayTeam: 'First Away',
+            kickoffTime: '2030-04-01T19:30:00+08:00',
+          },
+        ],
+        markets: [
+          {
+            marketId: MARKET_B,
+            matchId: MATCH_B,
+            playType: 'WIN_DRAW_LOSS',
+            selection: 'DRAW',
+            odds: 3.4,
+          },
+          {
+            marketId: MARKET_A,
+            matchId: MATCH_A,
+            playType: 'WIN_DRAW_LOSS',
+            selection: 'HOME_WIN',
+            odds: 2.15,
+          },
+        ],
+        schemaVersion: 'OCR_REVIEW_DRAFT_V2',
+        updatedAt: '2026-08-24T00:00:00Z',
+      },
+    } as never);
+
+    const wrapper = mount(OcrReviewWizard, {
+      global: {
+        plugins: [pinia],
+      },
+    });
+    await flushPromises();
+
+    expect((wrapper.get('[data-testid="match-home-0"]').element as HTMLInputElement).value)
+      .toBe('Second Home');
+    expect((wrapper.get('[data-testid="match-home-1"]').element as HTMLInputElement).value)
+      .toBe('First Home');
+    expect(wrapper.findAll('[data-testid="market-selection-0"]')
+      .map((entry) => (entry.element as HTMLSelectElement).value)).toEqual(['DRAW', 'HOME_WIN']);
+    expect(wrapper.text()).toContain('当前服务端草稿 revision：4（已保存）');
+    expect(wrapper.find('[data-testid="low-confidence-evidence"]').exists()).toBe(false);
+    expect(wrapper.get('[data-testid="confirm-review-draft"]').attributes('disabled')).toBeUndefined();
+  });
+
   it('shows a non-persisted empty state on refresh or direct entry', () => {
     const workflowStore = useOcrWorkflowStore();
     workflowStore.setReviewDraft({

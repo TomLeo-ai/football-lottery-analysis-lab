@@ -51,6 +51,17 @@ public class OcrReviewDraftServiceImpl implements OcrReviewDraftService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public OcrReviewDraftResponse getDraft(String ocrTaskId) {
+        DraftRecord draft = draftRepository.findActiveDraft(ocrTaskId)
+                .orElseThrow(() -> new ApiException(
+                        HttpStatus.NOT_FOUND,
+                        "DRAFT_NOT_FOUND",
+                        "OCR review draft was not found."));
+        return toResponse(draft);
+    }
+
+    @Override
     @Transactional
     public OcrReviewDraftResponse saveDraft(
             String ocrTaskId,

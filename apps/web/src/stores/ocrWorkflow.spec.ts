@@ -1,8 +1,13 @@
 import { createPinia, setActivePinia } from 'pinia';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useOcrWorkflowStore } from '@/stores/ocrWorkflow';
-import type { OcrWorkflowAggregate, UserConfirmedSnapshot, WorkflowStage } from '@/types/ocrWorkflow';
+import type {
+  OcrReviewDraftResponse,
+  OcrWorkflowAggregate,
+  UserConfirmedSnapshot,
+  WorkflowStage,
+} from '@/types/ocrWorkflow';
 
 const WORKFLOW_A = 'workflow-550e8400-e29b-41d4-a716-446655440001';
 const WORKFLOW_B = 'workflow-550e8400-e29b-41d4-a716-446655440002';
@@ -50,6 +55,22 @@ function snapshot(
   };
 }
 
+function persistedDraft(workflowId: string): OcrReviewDraftResponse {
+  return {
+    ocrTaskId: 'ocr-001',
+    workflowId,
+    revision: 3,
+    draftStatus: 'ACTIVE',
+    riskPreference: 'BALANCED',
+    budgetAmount: 20,
+    currency: 'CNY',
+    matches: [],
+    markets: [],
+    schemaVersion: 'OCR_REVIEW_DRAFT_V2',
+    updatedAt: '2026-08-24T00:00:00Z',
+  };
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((done) => {
@@ -62,6 +83,41 @@ describe('ocrWorkflow authoritative hydration', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     sessionStorage.clear();
+  });
+
+  it('hydrates the active persisted draft while waiting for user confirmation', async () => {
+    const store = useOcrWorkflowStore();
+    const draft = persistedDraft(WORKFLOW_A);
+    const fetchDraft = vi.fn().mockResolvedValue(draft);
+
+    await store.hydrateWorkflow(WORKFLOW_A, {
+      fetchWorkflow: async () => workflow(WORKFLOW_A, 'WAITING_USER_CONFIRMATION', {
+        currentOcrTaskId: draft.ocrTaskId,
+      }),
+      fetchDraft,
+    } as never);
+
+    expect(fetchDraft).toHaveBeenCalledWith(draft.ocrTaskId);
+    expect(Reflect.get(store, 'persistedReviewDraft')).toEqual(draft);
+  });
+
+  it('does not expose the initial revision-zero placeholder as a saved draft', async () => {
+    const store = useOcrWorkflowStore();
+    const draft = {
+      ...persistedDraft(WORKFLOW_A),
+      revision: 0,
+      matches: [],
+      markets: [],
+    };
+
+    await store.hydrateWorkflow(WORKFLOW_A, {
+      fetchWorkflow: async () => workflow(WORKFLOW_A, 'WAITING_USER_CONFIRMATION', {
+        currentOcrTaskId: draft.ocrTaskId,
+      }),
+      fetchDraft: async () => draft,
+    } as never);
+
+    expect(Reflect.get(store, 'persistedReviewDraft')).toBeNull();
   });
 
   it.each([

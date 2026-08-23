@@ -128,6 +128,10 @@ export function parseOcrCandidates(
   });
 }
 
+export function getOcrReviewDraft(ocrTaskId: string): Promise<OcrReviewDraftResponse> {
+  return requestJson<OcrReviewDraftResponse>(`/api/ocr/review-drafts/${encodeURIComponent(ocrTaskId)}`);
+}
+
 export function saveOcrReviewDraft(
   ocrTaskId: string,
   request: SaveOcrReviewDraftRequest,
