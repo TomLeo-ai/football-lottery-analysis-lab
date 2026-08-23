@@ -816,8 +816,8 @@ export function createRealStage9Adapters({
             'apps/server/pom.xml',
             '-Dtest=Stage9PrivacyDatabaseAuditTest',
             `-Dstage9.db.url=${context.databaseUrl}`,
-            `-Dstage9.rawSentinel=${context.rawOnlySentinel}`,
-            `-Dstage9.originalFileName=${context.originalFileName}`,
+            `-Dstage9.privacy.rawSentinel=${context.rawOnlySentinel}`,
+            `-Dstage9.privacy.originalFileName=${context.originalFileName}`,
             'test',
           ],
           cwd: context.repositoryRoot,
@@ -1185,6 +1185,10 @@ async function runRealOcr({ browser, originalFileName, repositoryRoot, webOrigin
     throw runnerError('OCR_EVIDENCE_FAILED', 'Stage 9 real OCR evidence was incomplete');
   }
 
+  await page.locator('[data-testid^="match-league-"]').first().waitFor({
+    state: 'visible',
+    timeout: 30_000,
+  });
   const structured = await page.evaluate(() => {
     const values = (prefix) => [...document.querySelectorAll(`[data-testid^="${prefix}"]`)]
       .map((element) => element.value);
@@ -1233,11 +1237,16 @@ const GOLDEN_MATCHES = Object.freeze([
 ]);
 
 async function executeStage9GoldenFlow(context) {
-  const ocr = await runRealOcr(context);
+  const ocr = await controlledFlowStep(
+    'GOLDEN_OCR_BROWSER_FAILED',
+    () => runRealOcr(context),
+  );
   const page = browserPage(context.browser);
-  await normalizeGoldenDraft(page);
-  await page.getByTestId('save-review-draft').click();
-  await page.getByText(/草稿已保存，revision 1。/).waitFor({ timeout: 30_000 });
+  await controlledFlowStep('GOLDEN_DRAFT_EDIT_FAILED', () => normalizeGoldenDraft(page));
+  await controlledFlowStep('GOLDEN_DRAFT_SAVE_UI_FAILED', async () => {
+    await page.getByTestId('save-review-draft').click();
+    await page.getByText(/草稿已保存，revision 1。/).waitFor({ timeout: 30_000 });
+  });
 
   const savedWrite = [...context.browser.networkWrites]
     .reverse()
@@ -1280,9 +1289,11 @@ async function executeStage9GoldenFlow(context) {
     },
   }), 400, 'VALIDATION_FAILED');
 
-  await page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 });
-  await page.getByText(/已从服务端恢复 revision 1/).waitFor({ timeout: 30_000 });
-  await assertGoldenDraft(page);
+  await controlledFlowStep('GOLDEN_DRAFT_RELOAD_UI_FAILED', async () => {
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 });
+    await page.getByText(/已从服务端恢复 revision 1/).waitFor({ timeout: 30_000 });
+    await assertGoldenDraft(page);
+  });
 
   const workflowResult = await browserApi(page, `/api/ocr/workflows/${ocr.workflowId}`);
   const workflow = requireApiData(workflowResult, 200);
@@ -1311,6 +1322,15 @@ async function executeStage9GoldenFlow(context) {
     coldWorker: ocr.worker,
     firstBackendResource: context.backend,
   });
+}
+
+async function controlledFlowStep(code, action) {
+  try {
+    return await action();
+  } catch (error) {
+    if (error instanceof Stage9RunnerError) throw error;
+    throw runnerError(code, 'Stage 9 browser flow failed at a controlled step');
+  }
 }
 
 async function normalizeGoldenDraft(page) {
@@ -1705,10 +1725,15 @@ function isDirectRun() {
 }
 
 if (isDirectRun()) {
+  let activeStage = 'not-started';
   try {
     const rootPackage = JSON.parse(await readFile(join(DEFAULT_REPOSITORY_ROOT, 'package.json'), 'utf8'));
+    const adapters = createRealStage9Adapters();
+    adapters.observeStage = (stage) => {
+      if (stage !== 'cleanup') activeStage = stage;
+    };
     const result = await runStage9({
-      adapters: createRealStage9Adapters(),
+      adapters,
       expectedVersion: rootPackage.version,
       repositoryRoot: DEFAULT_REPOSITORY_ROOT,
     });
@@ -1717,7 +1742,7 @@ if (isDirectRun()) {
       runId: result.runId,
     })}\n`);
   } catch (error) {
-    process.stderr.write(`STAGE9_SMOKE_FAILED ${safeErrorCode(error)}\n`);
+    process.stderr.write(`STAGE9_SMOKE_FAILED ${safeErrorCode(error)} ${activeStage}\n`);
     process.exitCode = 1;
   }
 }

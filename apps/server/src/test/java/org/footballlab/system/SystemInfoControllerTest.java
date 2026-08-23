@@ -19,7 +19,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 class SystemInfoControllerTest {
 
     private static final String ARTIFACT = "football-lottery-analysis-server";
-    private static final String VERSION = "0.1.0-SNAPSHOT";
+    private static final String VERSION = "0.2.0";
     private static final String VERIFICATION_RUN_ID = "8d5b532e-7596-4b2d-a268-4bea468311c8";
 
     @Test
