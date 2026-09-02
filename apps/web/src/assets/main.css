@@ -51,6 +51,9 @@ a {
 }
 
 .trial-notice a {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
   color: #714f00;
   font-size: 14px;
   font-weight: 700;
