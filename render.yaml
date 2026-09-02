@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: football-lottery-analysis-lab
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/system/build-info
+    autoDeployTrigger: checksPass
