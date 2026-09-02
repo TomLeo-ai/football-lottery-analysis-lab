@@ -11,6 +11,30 @@ This wording describes preparation and verification evidence only: no `v0.2.0`
 tag or GitHub Release is claimed here, and it is not evidence of external
 adoption.
 
+## Public Trial
+
+The project is prepared for a disposable Render Free public trial. The public
+URL will be added here after the maintainer authorizes and completes the first
+Render deployment.
+
+> Trial data warning: the first visit can take about one minute while the free
+> service wakes. Service sleep, restart, redeploy, or upgrade can clear drafts,
+> simulated plans, and review data. Do not rely on the trial to preserve
+> important information, and do not upload sensitive images or images you do
+> not have permission to use.
+
+The trial is for exploration and feedback, not production use or durable
+storage. Original images and complete OCR text keep the existing browser-local
+boundary. No external LLM credential, persistent disk, or production database
+is configured by default.
+
+- [Report a trial problem or propose an improvement](https://github.com/TomLeo-ai/football-lottery-analysis-lab/issues)
+- [Deploy this repository to Render](https://render.com/deploy?repo=https://github.com/TomLeo-ai/football-lottery-analysis-lab)
+- [Read the public-trial deployment design](docs/superpowers/specs/2026-08-30-public-trial-deployment-design.md)
+
+A working deployment is accessibility evidence only. It does not establish
+external adoption or guarantee acceptance into Codex for Open Source.
+
 ## Project Boundary
 
 This repository is designed around strict compliance boundaries:
