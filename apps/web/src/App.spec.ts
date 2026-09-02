@@ -36,6 +36,14 @@ describe('App shell navigation', () => {
   it('keeps five primary mobile entries while exposing extra workflow pages for desktop', () => {
     const wrapper = mountAppAt('/dashboard');
 
+    const notice = wrapper.get('[data-testid="public-trial-notice"]');
+    expect(notice.text()).toContain('休眠、重启或升级后');
+    expect(notice.text()).toContain('草稿、方案及复盘数据可能被清空');
+    expect(notice.text()).toContain('请勿上传敏感信息或无权使用的图片');
+    expect(
+      notice.get('a[href="https://github.com/TomLeo-ai/football-lottery-analysis-lab/issues"]'),
+    ).toBeTruthy();
+
     const navLinks = wrapper.findAll('.app-sidebar__nav a');
     const mobilePrimaryLinks = wrapper.findAll('.app-sidebar__nav a:not(.app-sidebar__nav-extra)');
 

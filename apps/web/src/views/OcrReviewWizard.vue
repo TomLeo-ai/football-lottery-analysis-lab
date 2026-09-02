@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 
 import { ApiRequestError } from '@/api/http';
 import { confirmOcrReviewDraft, saveOcrReviewDraft } from '@/api/ocrWorkflow';
+import TrialDataNotice from '@/components/TrialDataNotice.vue';
 import ReviewDraftEditor from '@/components/ocr/ReviewDraftEditor.vue';
 import {
   buildLocalReviewDraft,
@@ -169,6 +170,8 @@ async function confirmDraft(): Promise<void> {
       </div>
       <p class="page-heading__notice">本地草稿 · 保存后确认快照 · 不进入 AI 分析</p>
     </div>
+
+    <TrialDataNotice compact />
 
     <div class="policy-panel" role="note">
       <strong>阶段边界</strong>

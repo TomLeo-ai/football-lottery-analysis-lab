@@ -8,6 +8,7 @@ import {
 import { computed, onBeforeUnmount, ref, shallowRef } from 'vue';
 
 import { parseOcrCandidates } from '@/api/ocrWorkflow';
+import TrialDataNotice from '@/components/TrialDataNotice.vue';
 import ImageWorkspace from '@/components/ocr/ImageWorkspace.vue';
 import OcrRunPanel from '@/components/ocr/OcrRunPanel.vue';
 import SourceDeclarationPanel from '@/components/ocr/SourceDeclarationPanel.vue';
@@ -664,6 +665,8 @@ onBeforeUnmount(() => {
       </div>
       <p class="page-heading__notice">非官方 · 仅模拟分析/复盘 · 原图不上传</p>
     </div>
+
+    <TrialDataNotice compact />
 
     <div class="policy-panel" role="note">
       <strong>阶段边界</strong>
