@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 
+import TrialDataNotice from '@/components/TrialDataNotice.vue';
 import { useOcrWorkflowStore } from '@/stores/ocrWorkflow';
 
 const workflowStore = useOcrWorkflowStore();
@@ -14,6 +15,8 @@ function workflowRoute(targetName: string, fallback: string) {
 </script>
 
 <template>
+  <TrialDataNotice />
+
   <RouterView v-if="$route.path === '/'" />
 
   <div v-else class="app-shell">
