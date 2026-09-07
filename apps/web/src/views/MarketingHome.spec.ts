@@ -33,7 +33,12 @@ describe('MarketingHome', () => {
     expect(nav.text()).toContain('界面');
     expect(nav.text()).toContain('合规');
 
-    expect(wrapper.find('a[href="/dashboard"]').text()).toContain('进入工作台');
+    const trialLinks = wrapper.findAll('a[href="/dashboard"]');
+    expect(trialLinks).toHaveLength(2);
+    expect(trialLinks.every((link) => link.text() === '免登录进入试用')).toBe(true);
+    expect(wrapper.find('input[type="email"]').exists()).toBe(false);
+    expect(wrapper.find('input[type="password"]').exists()).toBe(false);
+    expect(wrapper.text()).not.toContain('验证码');
     expect(wrapper.find('a[href="/about-compliance"]').text()).toContain('查看合规边界');
     expect(wrapper.find('img[src="/product-screens/dashboard.png"]').exists()).toBe(true);
   });

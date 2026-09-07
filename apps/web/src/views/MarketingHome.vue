@@ -123,7 +123,7 @@ const complianceBoundaries = [
         <a v-for="item in navItems" :key="item.href" :href="item.href">{{ item.label }}</a>
       </div>
 
-      <RouterLink class="marketing-button marketing-button--compact" to="/dashboard">进入工作台</RouterLink>
+      <RouterLink class="marketing-button marketing-button--compact" to="/dashboard">免登录进入试用</RouterLink>
     </nav>
 
     <section id="top" class="marketing-hero" aria-labelledby="marketing-title">
@@ -136,7 +136,7 @@ const complianceBoundaries = [
           构建一套清晰、克制、可回放的足球数据研究 Command Center。
         </p>
         <div class="marketing-hero__actions">
-          <RouterLink class="marketing-button marketing-button--primary" to="/dashboard">进入工作台</RouterLink>
+          <RouterLink class="marketing-button marketing-button--primary" to="/dashboard">免登录进入试用</RouterLink>
           <RouterLink class="marketing-button marketing-button--ghost" to="/about-compliance">查看合规边界</RouterLink>
         </div>
       </div>
